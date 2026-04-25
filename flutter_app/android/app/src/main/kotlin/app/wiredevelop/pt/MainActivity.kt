@@ -1,4 +1,4 @@
-package com.wiredevelop.wire_crm_app
+package app.wiredevelop.pt
 
 import io.flutter.embedding.android.FlutterActivity
 
