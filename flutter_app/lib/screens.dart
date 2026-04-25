@@ -157,7 +157,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 24),
                   Center(
                     child: Image.asset(
-                      'assets/images/wiredevelop-logo.png',
+                      '../public/logo/logo.png',
                       height: 72,
                       fit: BoxFit.contain,
                     ),
