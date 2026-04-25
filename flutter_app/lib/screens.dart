@@ -33,217 +33,38 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  late final TextEditingController _baseUrlController;
-  late final TextEditingController _emailController;
-  late final TextEditingController _passwordController;
-  bool _loading = false;
-  bool _biometricSupported = false;
+  bool _loading = true;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _baseUrlController = TextEditingController(text: widget.controller.baseUrl);
-    _emailController = TextEditingController(text: widget.controller.apiEmail);
-    _passwordController = TextEditingController(
-      text: widget.controller.apiPassword,
-    );
-    _loadBiometricAvailability();
-  }
-
-  Future<void> _loadBiometricAvailability() async {
-    final available = await widget.controller.canUseBiometrics();
-    if (!mounted) return;
-    setState(() => _biometricSupported = available);
-  }
-
-  Future<void> _promptBiometricEnrollment() async {
-    if (widget.controller.biometricEnabled || !_biometricSupported) return;
-
-    final accepted = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: const Text('Ativar Face ID / Impressão digital'),
-        content: const Padding(
-          padding: EdgeInsets.only(top: 12),
-          child: Text(
-            'Pode ativar login biométrico para entrar mais rápido nos próximos acessos.',
-          ),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Agora não'),
-          ),
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Ativar'),
-          ),
-        ],
-      ),
-    );
-
-    if (accepted == true) {
-      await widget.controller.setBiometricEnabled(true);
-      if (mounted) {
-        await showMessage(
-          context,
-          title: 'Biometria ativada',
-          message: 'No próximo login poderá entrar com Face ID/Impressão digital.',
-        );
-      }
-    }
+    _submit();
   }
 
   Future<void> _submit() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      await widget.controller.login(
-        baseUrl: _baseUrlController.text,
-        email: _emailController.text,
-        password: _passwordController.text,
-      );
-      if (!mounted) return;
-      await _promptBiometricEnrollment();
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      await showMessage(
-        context,
-        title: 'Erro de autenticação',
-        message: error.message,
-      );
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  Future<void> _loginWithBiometrics() async {
-    setState(() => _loading = true);
-    try {
-      final authenticated = await widget.controller.authenticateWithBiometrics();
-      if (!authenticated) return;
       await widget.controller.loginWithCachedCredentials();
     } on ApiException catch (error) {
-      if (!mounted) return;
-      await showMessage(
-        context,
-        title: 'Erro de autenticação',
-        message: error.message,
-      );
+      if (mounted) setState(() => _error = error.message);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  @override
-  void dispose() {
-    _baseUrlController.dispose();
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       child: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 24),
-                  Center(
-                    child: Image.asset(
-                      '../public/logo/logo.png',
-                      height: 72,
-                      fit: BoxFit.contain,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'WireDevelop',
-                    style: TextStyle(fontSize: 38, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Portal mobile em estilo iOS alimentado pela API Laravel.',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: CupertinoColors.systemGrey,
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  CardSection(
-                    title: 'Configuração inicial da API',
-                    child: Column(
-                      children: [
-                        CupertinoTextField(
-                          controller: _baseUrlController,
-                          placeholder: 'API base URL',
-                          padding: const EdgeInsets.all(14),
-                        ),
-                        const SizedBox(height: 12),
-                        CupertinoTextField(
-                          controller: _emailController,
-                          placeholder: 'Email',
-                          keyboardType: TextInputType.emailAddress,
-                          padding: const EdgeInsets.all(14),
-                        ),
-                        const SizedBox(height: 12),
-                        CupertinoTextField(
-                          controller: _passwordController,
-                          placeholder: 'Password',
-                          obscureText: true,
-                          padding: const EdgeInsets.all(14),
-                        ),
-                        const SizedBox(height: 18),
-                        SizedBox(
-                          width: double.infinity,
-                          child: CupertinoButton.filled(
-                            onPressed: _loading ? null : _submit,
-                            child: _loading
-                                ? const CupertinoActivityIndicator(
-                                    color: CupertinoColors.white,
-                                  )
-                                : const Text('Entrar'),
-                          ),
-                        ),
-                        if (_biometricSupported && widget.controller.biometricEnabled) ...[
-                          const SizedBox(height: 10),
-                          SizedBox(
-                            width: double.infinity,
-                            child: CupertinoButton(
-                              color: const Color(0x14015557),
-                              onPressed: _loading ? null : _loginWithBiometrics,
-                              child: const Text(
-                                'Entrar com Face ID / Impressão digital',
-                                style: TextStyle(color: kBrandColor),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      'Android emulator: usa 10.0.2.2 no host. iOS simulator: 127.0.0.1 costuma funcionar.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: CupertinoColors.systemGrey,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
+        child: _loading
+            ? const Center(child: CupertinoActivityIndicator(radius: 18))
+            : _error != null
+            ? ErrorState(message: _error!, onRetry: _submit)
+            : const SizedBox.shrink(),
       ),
     );
   }
