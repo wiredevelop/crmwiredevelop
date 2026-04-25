@@ -5,6 +5,16 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val cmKeystorePath = System.getenv("CM_KEYSTORE_PATH")
+val cmKeystorePassword = System.getenv("CM_KEYSTORE_PASSWORD")
+val cmKeyAlias = System.getenv("CM_KEY_ALIAS")
+val cmKeyPassword = System.getenv("CM_KEY_PASSWORD")
+val hasCodemagicSigning =
+    !cmKeystorePath.isNullOrBlank() &&
+    !cmKeystorePassword.isNullOrBlank() &&
+    !cmKeyAlias.isNullOrBlank() &&
+    !cmKeyPassword.isNullOrBlank()
+
 android {
     namespace = "com.wiredevelop.wire_crm_app"
     compileSdk = flutter.compileSdkVersion
@@ -30,11 +40,25 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            if (hasCodemagicSigning) {
+                storeFile = file(cmKeystorePath!!)
+                storePassword = cmKeystorePassword
+                keyAlias = cmKeyAlias
+                keyPassword = cmKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig =
+                if (hasCodemagicSigning) {
+                    signingConfigs.getByName("release")
+                } else {
+                    signingConfigs.getByName("debug")
+                }
         }
     }
 }

@@ -7,6 +7,8 @@ workflows:
       flutter: stable
       xcode: latest
       java: 17
+      android_signing:
+        - wire_crm_keystore
       vars:
         PROJECT_DIR: flutter_app
     cache:
