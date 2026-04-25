@@ -1,0 +1,80 @@
+workflows:
+  wire-crm-android:
+    name: Wire CRM Android
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      java: 17
+      vars:
+        PROJECT_DIR: flutter_app
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $PROJECT_DIR/.dart_tool
+    scripts:
+      - name: Install Flutter dependencies
+        script: |
+          cd "$PROJECT_DIR"
+          flutter pub get
+      - name: Static analysis
+        script: |
+          cd "$PROJECT_DIR"
+          flutter analyze
+      - name: Run widget tests
+        script: |
+          cd "$PROJECT_DIR"
+          flutter test
+      - name: Build Android APK
+        script: |
+          cd "$PROJECT_DIR"
+          flutter build apk --release
+      - name: Build Android App Bundle
+        script: |
+          cd "$PROJECT_DIR"
+          flutter build appbundle --release
+    artifacts:
+      - flutter_app/build/**/outputs/**/*.apk
+      - flutter_app/build/**/outputs/**/*.aab
+      - flutter_app/build/**/reports/**/*.html
+
+  wire-crm-ios:
+    name: Wire CRM iOS
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      vars:
+        PROJECT_DIR: flutter_app
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+        - $PROJECT_DIR/.dart_tool
+    scripts:
+      - name: Install Flutter dependencies
+        script: |
+          cd "$PROJECT_DIR"
+          flutter pub get
+      - name: Static analysis
+        script: |
+          cd "$PROJECT_DIR"
+          flutter analyze
+      - name: Run widget tests
+        script: |
+          cd "$PROJECT_DIR"
+          flutter test
+      - name: Install CocoaPods dependencies
+        script: |
+          cd "$PROJECT_DIR/ios"
+          pod install
+      - name: Build unsigned iOS app
+        script: |
+          cd "$PROJECT_DIR"
+          flutter build ios --release --no-codesign
+    artifacts:
+      - flutter_app/build/ios/iphoneos/*.app
+      - flutter_app/build/ios/archive/*.xcarchive
