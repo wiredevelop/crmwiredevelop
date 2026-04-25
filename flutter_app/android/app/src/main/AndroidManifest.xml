@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="wire_crm_app"
+        android:label="WireDevelop"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

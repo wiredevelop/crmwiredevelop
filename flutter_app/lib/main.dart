@@ -24,7 +24,7 @@ class WireCrmApp extends StatelessWidget {
       animation: controller,
       builder: (context, _) {
         return CupertinoApp(
-          title: 'Wire CRM',
+          title: 'WireDevelop',
           debugShowCheckedModeBanner: false,
           theme: const CupertinoThemeData(
             primaryColor: Color(0xFF015557),

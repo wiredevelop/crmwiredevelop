@@ -114,7 +114,7 @@ class AppController extends ChangeNotifier {
   Future<bool> authenticateWithBiometrics() async {
     try {
       return await _localAuth.authenticate(
-        localizedReason: 'Autentique-se para entrar rapidamente no Wire CRM',
+        localizedReason: 'Autentique-se para entrar rapidamente no WireDevelop',
         options: const AuthenticationOptions(
           biometricOnly: true,
           stickyAuth: true,

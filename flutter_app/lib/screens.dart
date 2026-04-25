@@ -155,8 +155,16 @@ class _LoginScreenState extends State<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 24),
+                  Center(
+                    child: Image.asset(
+                      'assets/images/wiredevelop-logo.png',
+                      height: 72,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
                   const Text(
-                    'Wire CRM',
+                    'WireDevelop',
                     style: TextStyle(fontSize: 38, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 8),
