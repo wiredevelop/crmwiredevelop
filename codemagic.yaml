@@ -7,8 +7,8 @@ workflows:
       flutter: stable
       xcode: latest
       java: 17
-      android_signing:
-        - wire_crm_keystore
+      groups:
+        - keystore_credentials
       vars:
         PROJECT_DIR: flutter_app
     cache:
@@ -16,6 +16,9 @@ workflows:
         - $HOME/.pub-cache
         - $PROJECT_DIR/.dart_tool
     scripts:
+      - name: Set up Android keystore
+        script: |
+          echo "$CM_KEYSTORE" | base64 --decode > "$CM_KEYSTORE_PATH"
       - name: Install Flutter dependencies
         script: |
           cd "$PROJECT_DIR"
