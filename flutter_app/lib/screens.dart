@@ -34,14 +34,64 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   late final TextEditingController _baseUrlController;
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  late final TextEditingController _emailController;
+  late final TextEditingController _passwordController;
   bool _loading = false;
+  bool _biometricSupported = false;
 
   @override
   void initState() {
     super.initState();
     _baseUrlController = TextEditingController(text: widget.controller.baseUrl);
+    _emailController = TextEditingController(text: widget.controller.apiEmail);
+    _passwordController = TextEditingController(
+      text: widget.controller.apiPassword,
+    );
+    _loadBiometricAvailability();
+  }
+
+  Future<void> _loadBiometricAvailability() async {
+    final available = await widget.controller.canUseBiometrics();
+    if (!mounted) return;
+    setState(() => _biometricSupported = available);
+  }
+
+  Future<void> _promptBiometricEnrollment() async {
+    if (widget.controller.biometricEnabled || !_biometricSupported) return;
+
+    final accepted = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Ativar Face ID / Impressão digital'),
+        content: const Padding(
+          padding: EdgeInsets.only(top: 12),
+          child: Text(
+            'Pode ativar login biométrico para entrar mais rápido nos próximos acessos.',
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Agora não'),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Ativar'),
+          ),
+        ],
+      ),
+    );
+
+    if (accepted == true) {
+      await widget.controller.setBiometricEnabled(true);
+      if (mounted) {
+        await showMessage(
+          context,
+          title: 'Biometria ativada',
+          message: 'No próximo login poderá entrar com Face ID/Impressão digital.',
+        );
+      }
+    }
   }
 
   Future<void> _submit() async {
@@ -52,6 +102,8 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _emailController.text,
         password: _passwordController.text,
       );
+      if (!mounted) return;
+      await _promptBiometricEnrollment();
     } on ApiException catch (error) {
       if (!mounted) return;
       await showMessage(
@@ -62,6 +114,32 @@ class _LoginScreenState extends State<LoginScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _loginWithBiometrics() async {
+    setState(() => _loading = true);
+    try {
+      final authenticated = await widget.controller.authenticateWithBiometrics();
+      if (!authenticated) return;
+      await widget.controller.loginWithCachedCredentials();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Erro de autenticação',
+        message: error.message,
+      );
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    _baseUrlController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 
   @override
@@ -91,7 +169,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
                   CardSection(
-                    title: 'Entrar',
+                    title: 'Configuração inicial da API',
                     child: Column(
                       children: [
                         CupertinoTextField(
@@ -125,6 +203,20 @@ class _LoginScreenState extends State<LoginScreen> {
                                 : const Text('Entrar'),
                           ),
                         ),
+                        if (_biometricSupported && widget.controller.biometricEnabled) ...[
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            width: double.infinity,
+                            child: CupertinoButton(
+                              color: const Color(0x14015557),
+                              onPressed: _loading ? null : _loginWithBiometrics,
+                              child: const Text(
+                                'Entrar com Face ID / Impressão digital',
+                                style: TextStyle(color: kBrandColor),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),
