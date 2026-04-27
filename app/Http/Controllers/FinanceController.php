@@ -93,6 +93,7 @@ class FinanceController extends Controller
                     'invoice_id' => $transaction->invoice_id,
                     'document_number' => $transaction->invoice?->number,
                     'invoice_status' => $transaction->invoice?->status,
+                    'payment_reference' => $transaction->payment_reference,
                     'billing' => $transaction->payment_provider === 'stripe'
                         ? [
                             'provider' => 'stripe',

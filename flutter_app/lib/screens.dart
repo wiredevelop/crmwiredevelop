@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -5326,6 +5327,7 @@ class ClientWalletScreen extends StatefulWidget {
 
 class _ClientWalletScreenState extends State<ClientWalletScreen> {
   bool _loading = true;
+  bool _paymentLoading = false;
   String? _error;
   Map<String, dynamic>? _wallet;
   List<dynamic> _transactions = [];
@@ -5545,6 +5547,193 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
     return '$duration · ${formatDate(item['transaction_at'])}';
   }
 
+  int get _selectedQuantity =>
+      max(1, int.tryParse(_packQuantityController.text.trim()) ?? 1);
+
+  Map<String, dynamic>? get _selectedPackItem {
+    if (_packItemId == null) return null;
+    final matches = _selectedPackItems.where(
+      (entry) => entry['id']?.toString() == _packItemId,
+    );
+    return matches.isEmpty ? null : matches.first;
+  }
+
+  num get _selectedPackTotal {
+    final item = _selectedPackItem;
+    if (item == null) return 0;
+    return toNumber(item['pack_price']) * _selectedQuantity;
+  }
+
+  String? _validateBillingFields() {
+    if (!_wantsInvoice) return null;
+
+    final requiredFields = <String, String?>{
+      'nome': _trimmed(_billingNameController),
+      'email': _trimmed(_billingEmailController),
+      'NIF': _trimmed(_billingVatController),
+      'morada': _trimmed(_billingAddressController),
+      'código postal': _trimmed(_billingPostalCodeController),
+      'cidade': _trimmed(_billingCityController),
+      'país': _trimmed(_billingCountryController),
+    };
+
+    final missing = requiredFields.entries
+        .where((entry) => entry.value == null)
+        .map((entry) => entry.key)
+        .toList();
+
+    if (missing.isNotEmpty) {
+      return 'Preenche os dados de faturação antes de pedir documento com NIF.';
+    }
+
+    if ((_trimmed(_billingVatController)?.length ?? 0) != 9) {
+      return 'O NIF deve ter 9 dígitos.';
+    }
+
+    if ((_trimmed(_billingPostalCodeController)?.length ?? 0) != 8) {
+      return 'O código postal deve estar no formato 0000-000.';
+    }
+
+    if ((_trimmed(_billingCountryController)?.length ?? 0) != 2) {
+      return 'O país deve ter 2 letras, por exemplo PT.';
+    }
+
+    return null;
+  }
+
+  BillingDetails _billingDetails() {
+    return BillingDetails(
+      name:
+          _trimmed(_billingNameController) ??
+          _walletClient?['name']?.toString(),
+      email:
+          _trimmed(_billingEmailController) ??
+          _walletClient?['email']?.toString(),
+      phone:
+          _trimmed(_billingPhoneController) ??
+          _walletClient?['phone']?.toString(),
+      address: Address(
+        city: _trimmed(_billingCityController),
+        country: _trimmed(_billingCountryController)?.toUpperCase(),
+        line1: _trimmed(_billingAddressController),
+        line2: '',
+        postalCode: _trimmed(_billingPostalCodeController),
+        state: '',
+      ),
+    );
+  }
+
+  Map<String, dynamic> _checkoutPayload() {
+    return {
+      'product_id': int.parse(_packProductId!),
+      'pack_item_id': int.parse(_packItemId!),
+      'quantity': _selectedQuantity,
+      'wants_invoice': _wantsInvoice,
+      'billing_name': _trimmed(_billingNameController),
+      'billing_email': _trimmed(_billingEmailController),
+      'billing_phone': _trimmed(_billingPhoneController),
+      'billing_vat': _trimmed(_billingVatController),
+      'billing_address': _trimmed(_billingAddressController),
+      'billing_postal_code': _trimmed(_billingPostalCodeController),
+      'billing_city': _trimmed(_billingCityController),
+      'billing_country': _trimmed(_billingCountryController)?.toUpperCase(),
+    };
+  }
+
+  Future<bool> _reviewCheckout() async {
+    final pack = _selectedPackProduct;
+    final option = _selectedPackItem;
+    if (pack == null || option == null) return false;
+
+    return await showCupertinoDialog<bool>(
+          context: context,
+          builder: (context) => CupertinoAlertDialog(
+            title: const Text('Rever compra'),
+            content: Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Column(
+                children: [
+                  _reviewLine('Pack', pack['name']?.toString() ?? '—'),
+                  _reviewLine(
+                    'Opção',
+                    '${option['hours']}h · ${option['validity_months']} meses',
+                  ),
+                  _reviewLine('Quantidade', _selectedQuantity.toString()),
+                  _reviewLine('Preço unitário', money(option['pack_price'])),
+                  _reviewLine('Total', money(_selectedPackTotal)),
+                  _reviewLine(
+                    'Documento com NIF',
+                    _wantsInvoice ? 'Sim' : 'Não',
+                  ),
+                  if (_wantsInvoice) ...[
+                    _reviewLine(
+                      'Nome',
+                      _trimmed(_billingNameController) ?? '—',
+                    ),
+                    _reviewLine(
+                      'Email',
+                      _trimmed(_billingEmailController) ?? '—',
+                    ),
+                    _reviewLine(
+                      'Telefone',
+                      _trimmed(_billingPhoneController) ?? '—',
+                    ),
+                    _reviewLine('NIF', _trimmed(_billingVatController) ?? '—'),
+                    _reviewLine(
+                      'Morada',
+                      _trimmed(_billingAddressController) ?? '—',
+                    ),
+                    _reviewLine(
+                      'Código postal',
+                      _trimmed(_billingPostalCodeController) ?? '—',
+                    ),
+                    _reviewLine(
+                      'Cidade',
+                      _trimmed(_billingCityController) ?? '—',
+                    ),
+                    _reviewLine(
+                      'País',
+                      _trimmed(_billingCountryController)?.toUpperCase() ?? '—',
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Voltar'),
+              ),
+              CupertinoDialogAction(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Pagar'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Widget _reviewLine(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            flex: 4,
+            child: Text(
+              label,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(flex: 6, child: Text(value, textAlign: TextAlign.right)),
+        ],
+      ),
+    );
+  }
+
   Future<void> _pickClientPackProduct() async {
     if (_packProducts.isEmpty) return;
     var selected = _packProductId ?? _packProducts.first['id'].toString();
@@ -5637,65 +5826,107 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
   }
 
   Future<void> _openCheckout() async {
-    if (_packProductId == null || _packItemId == null) return;
-    if (_wantsInvoice) {
-      final missing = <String>[
-        if (_trimmed(_billingNameController) == null) 'nome',
-        if (_trimmed(_billingEmailController) == null) 'email',
-        if (_trimmed(_billingVatController) == null) 'NIF',
-        if (_trimmed(_billingAddressController) == null) 'morada',
-        if (_trimmed(_billingPostalCodeController) == null) 'código postal',
-        if (_trimmed(_billingCityController) == null) 'cidade',
-        if (_trimmed(_billingCountryController) == null) 'país',
-      ];
-      if (missing.isNotEmpty) {
-        await showMessage(
-          context,
-          title: 'Dados em falta',
-          message:
-              'Preenche os dados de faturação antes de pedir documento com NIF.',
-        );
-        return;
-      }
+    if (_packProductId == null || _packItemId == null || _paymentLoading) {
+      return;
     }
 
+    final billingError = _validateBillingFields();
+    if (billingError != null) {
+      await showMessage(
+        context,
+        title: 'Dados inválidos',
+        message: billingError,
+      );
+      return;
+    }
+
+    final confirmed = await _reviewCheckout();
+    if (!confirmed || !mounted) return;
+
+    setState(() => _paymentLoading = true);
+    String? paymentIntentId;
     try {
       final result = await widget.controller.client.post(
         '/wallet/checkout',
-        body: {
-          'product_id': int.parse(_packProductId!),
-          'pack_item_id': int.parse(_packItemId!),
-          'quantity': int.tryParse(_packQuantityController.text.trim()) ?? 1,
-          'wants_invoice': _wantsInvoice,
-          'billing_name': _trimmed(_billingNameController),
-          'billing_email': _trimmed(_billingEmailController),
-          'billing_phone': _trimmed(_billingPhoneController),
-          'billing_vat': _trimmed(_billingVatController),
-          'billing_address': _trimmed(_billingAddressController),
-          'billing_postal_code': _trimmed(_billingPostalCodeController),
-          'billing_city': _trimmed(_billingCityController),
-          'billing_country': _trimmed(_billingCountryController)?.toUpperCase(),
-        },
+        body: _checkoutPayload(),
       );
       final data = (result['data'] as Map).cast<String, dynamic>();
-      final checkoutUrl = data['checkout_url']?.toString() ?? '';
-      if (checkoutUrl.isEmpty) return;
-      final opened = await launchUrl(
-        Uri.parse(checkoutUrl),
-        mode: LaunchMode.inAppBrowserView,
-      );
-      if (!opened && mounted) {
-        await showMessage(
-          context,
-          title: 'Não foi possível abrir',
-          message: 'Não foi possível abrir o checkout Stripe.',
-        );
-      } else if (mounted) {
-        _load();
+      paymentIntentId = data['payment_intent_id']?.toString();
+      final publishableKey = data['publishable_key']?.toString() ?? '';
+      if (publishableKey.isEmpty ||
+          paymentIntentId == null ||
+          paymentIntentId.isEmpty) {
+        throw Exception('Configuração Stripe inválida.');
       }
+
+      Stripe.publishableKey = publishableKey;
+      await Stripe.instance.applySettings();
+
+      await Stripe.instance.initPaymentSheet(
+        paymentSheetParameters: SetupPaymentSheetParameters(
+          merchantDisplayName: 'WireDevelop',
+          paymentIntentClientSecret:
+              data['payment_intent_client_secret']?.toString() ?? '',
+          customerId: data['customer_id']?.toString(),
+          customerEphemeralKeySecret: data['customer_ephemeral_key_secret']
+              ?.toString(),
+          billingDetails: _billingDetails(),
+          allowsDelayedPaymentMethods: false,
+        ),
+      );
+
+      await Stripe.instance.presentPaymentSheet();
+      await widget.controller.client.post(
+        '/wallet/checkout/finalize',
+        body: {'payment_intent_id': paymentIntentId},
+      );
+      await _load();
+
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Pagamento concluído',
+        message: 'O pagamento foi registado e a carteira foi atualizada.',
+      );
+    } on StripeException catch (error) {
+      if (paymentIntentId != null && paymentIntentId.isNotEmpty) {
+        try {
+          await widget.controller.client.post(
+            '/wallet/checkout/cancel',
+            body: {'payment_intent_id': paymentIntentId},
+          );
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Pagamento cancelado',
+        message:
+            error.error.localizedMessage ??
+            'O pagamento foi cancelado ou não foi concluído.',
+      );
     } on ApiException catch (error) {
       if (!mounted) return;
       await showMessage(context, title: 'Erro', message: error.message);
+    } catch (_) {
+      if (paymentIntentId != null && paymentIntentId.isNotEmpty) {
+        try {
+          await widget.controller.client.post(
+            '/wallet/checkout/cancel',
+            body: {'payment_intent_id': paymentIntentId},
+          );
+        } catch (_) {}
+      }
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Erro',
+        message: 'Não foi possível iniciar o pagamento.',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _paymentLoading = false);
+      }
     }
   }
 
@@ -5783,36 +6014,15 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
                             value: _selectedPackItemLabel,
                             onTap: _pickClientPackItem,
                           ),
-                          _field('Quantidade', _packQuantityController),
-                          if (_selectedPackItems.isNotEmpty &&
-                              _packItemId != null) ...[
-                            const SizedBox(height: 8),
-                            Builder(
-                              builder: (context) {
-                                final selected = _selectedPackItems.firstWhere(
-                                  (item) =>
-                                      item['id']?.toString() == _packItemId,
-                                  orElse: () => const <String, dynamic>{},
-                                );
-
-                                if (selected.isEmpty) {
-                                  return const SizedBox.shrink();
-                                }
-
-                                return Container(
-                                  width: double.infinity,
-                                  padding: const EdgeInsets.all(10),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFF4F7F8),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    '${selected['hours']}h · ${moneyOrDash(selected['pack_price'])} · ${selected['validity_months']} meses',
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
+                          _field(
+                            'Quantidade',
+                            _packQuantityController,
+                            keyboardType: TextInputType.number,
+                            inputFormatters: [
+                              FilteringTextInputFormatter.digitsOnly,
+                              LengthLimitingTextInputFormatter(2),
+                            ],
+                          ),
                           const SizedBox(height: 8),
                           Row(
                             children: [
@@ -5828,27 +6038,85 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
                           ),
                           if (_wantsInvoice) ...[
                             const SizedBox(height: 12),
-                            _field('Nome faturação', _billingNameController),
-                            _field('Email faturação', _billingEmailController),
-                            _field('Telefone', _billingPhoneController),
-                            _field('NIF', _billingVatController),
-                            _field('Morada', _billingAddressController),
+                            _field(
+                              'Nome faturação',
+                              _billingNameController,
+                              textCapitalization: TextCapitalization.words,
+                              maxLength: 120,
+                            ),
+                            _field(
+                              'Email faturação',
+                              _billingEmailController,
+                              keyboardType: TextInputType.emailAddress,
+                              maxLength: 160,
+                            ),
+                            _field(
+                              'Telefone',
+                              _billingPhoneController,
+                              keyboardType: TextInputType.phone,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                                LengthLimitingTextInputFormatter(9),
+                              ],
+                            ),
+                            _field(
+                              'NIF',
+                              _billingVatController,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                                LengthLimitingTextInputFormatter(9),
+                              ],
+                            ),
+                            _field(
+                              'Morada',
+                              _billingAddressController,
+                              textCapitalization: TextCapitalization.words,
+                              maxLength: 160,
+                            ),
                             _field(
                               'Código postal',
                               _billingPostalCodeController,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [
+                                PostalCodeTextInputFormatter(),
+                                LengthLimitingTextInputFormatter(8),
+                              ],
                             ),
-                            _field('Cidade', _billingCityController),
-                            _field('País (PT)', _billingCountryController),
+                            _field(
+                              'Cidade',
+                              _billingCityController,
+                              textCapitalization: TextCapitalization.words,
+                              maxLength: 80,
+                            ),
+                            _field(
+                              'País (PT)',
+                              _billingCountryController,
+                              textCapitalization: TextCapitalization.characters,
+                              inputFormatters: [
+                                FilteringTextInputFormatter.allow(
+                                  RegExp(r'[a-zA-Z]'),
+                                ),
+                                UpperCaseTextFormatter(),
+                                LengthLimitingTextInputFormatter(2),
+                              ],
+                            ),
                           ],
                           const SizedBox(height: 10),
                           CupertinoButton(
                             color: const Color(0xFF0E4D50),
                             borderRadius: BorderRadius.circular(14),
-                            onPressed: _openCheckout,
-                            child: const Text(
-                              'Abrir checkout Stripe',
-                              style: TextStyle(color: CupertinoColors.white),
-                            ),
+                            onPressed: _paymentLoading ? null : _openCheckout,
+                            child: _paymentLoading
+                                ? const CupertinoActivityIndicator(
+                                    color: CupertinoColors.white,
+                                  )
+                                : const Text(
+                                    'Rever e pagar',
+                                    style: TextStyle(
+                                      color: CupertinoColors.white,
+                                    ),
+                                  ),
                           ),
                         ],
                       ),
@@ -6634,6 +6902,10 @@ Widget _field(
   int maxLines = 1,
   bool enabled = true,
   String? placeholder,
+  TextInputType keyboardType = TextInputType.text,
+  TextCapitalization textCapitalization = TextCapitalization.none,
+  List<TextInputFormatter>? inputFormatters,
+  int? maxLength,
 }) {
   return Padding(
     padding: const EdgeInsets.only(bottom: 12),
@@ -6647,6 +6919,10 @@ Widget _field(
           enabled: enabled,
           maxLines: maxLines,
           placeholder: placeholder,
+          keyboardType: keyboardType,
+          textCapitalization: textCapitalization,
+          inputFormatters: inputFormatters,
+          maxLength: maxLength,
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: CupertinoColors.white,
@@ -6658,6 +6934,46 @@ Widget _field(
       ],
     ),
   );
+}
+
+class PostalCodeTextInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.isEmpty) {
+      return const TextEditingValue();
+    }
+
+    final clamped = digits.substring(0, min(7, digits.length));
+    final buffer = StringBuffer();
+    for (var i = 0; i < clamped.length; i++) {
+      if (i == 4) buffer.write('-');
+      buffer.write(clamped[i]);
+    }
+    final formatted = buffer.toString();
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
+
+class UpperCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    final upper = newValue.text.toUpperCase();
+    return TextEditingValue(
+      text: upper,
+      selection: TextSelection.collapsed(offset: upper.length),
+    );
+  }
 }
 
 Widget _selectorField({

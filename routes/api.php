@@ -43,6 +43,8 @@ Route::prefix('v1')->as('api.')->group(function () {
         Route::get('/objects', [ObjectPortalApiController::class, 'index']);
         Route::get('/wallet', [ClientWalletApiController::class, 'show']);
         Route::post('/wallet/checkout', [ClientWalletApiController::class, 'checkout']);
+        Route::post('/wallet/checkout/finalize', [ClientWalletApiController::class, 'finalize']);
+        Route::post('/wallet/checkout/cancel', [ClientWalletApiController::class, 'cancel']);
 
         Route::apiResource('clients', ClientApiController::class);
         Route::post('/clients/{client}/notes', [ClientApiController::class, 'storeNote']);

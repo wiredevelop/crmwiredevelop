@@ -33,6 +33,12 @@ class StripeWebhookApiController extends Controller
             app(StripeCheckoutService::class)->handleWebhookSession($session, $event->type);
         }
 
+        if (in_array($event->type, ['payment_intent.succeeded', 'payment_intent.payment_failed', 'payment_intent.canceled'], true)) {
+            /** @var array<string, mixed> $paymentIntent */
+            $paymentIntent = $event->data->object->toArray();
+            app(StripeCheckoutService::class)->handleWebhookPaymentIntent($paymentIntent, $event->type);
+        }
+
         return response()->json(['received' => true]);
     }
 }

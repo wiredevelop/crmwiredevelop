@@ -13,6 +13,7 @@ use App\Models\Product;
 use App\Models\Wallet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use App\Support\StripeCheckoutService;
 
 class ClientWalletApiController extends Controller
@@ -87,14 +88,49 @@ class ClientWalletApiController extends Controller
             'pack_item_id' => ['required', 'integer', 'exists:pack_items,id'],
             'quantity' => ['nullable', 'integer', 'min:1', 'max:99'],
             'wants_invoice' => ['required', 'boolean'],
-            'billing_name' => ['nullable', 'string', 'max:255'],
-            'billing_email' => ['nullable', 'email', 'max:255'],
-            'billing_phone' => ['nullable', 'string', 'max:255'],
-            'billing_vat' => ['nullable', 'string', 'max:255'],
-            'billing_address' => ['nullable', 'string', 'max:255'],
-            'billing_postal_code' => ['nullable', 'string', 'max:30'],
-            'billing_city' => ['nullable', 'string', 'max:255'],
-            'billing_country' => ['nullable', 'string', 'size:2'],
+            'billing_name' => [
+                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
+                'nullable',
+                'string',
+                'max:120',
+            ],
+            'billing_email' => [
+                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
+                'nullable',
+                'email',
+                'max:160',
+            ],
+            'billing_phone' => ['nullable', 'string', 'regex:/^[0-9]{9}$/'],
+            'billing_vat' => [
+                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
+                'nullable',
+                'string',
+                'regex:/^[0-9]{9}$/',
+            ],
+            'billing_address' => [
+                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
+                'nullable',
+                'string',
+                'max:160',
+            ],
+            'billing_postal_code' => [
+                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
+                'nullable',
+                'string',
+                'regex:/^[0-9]{4}-[0-9]{3}$/',
+            ],
+            'billing_city' => [
+                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
+                'nullable',
+                'string',
+                'max:80',
+            ],
+            'billing_country' => [
+                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
+                'nullable',
+                'string',
+                'regex:/^[A-Za-z]{2}$/',
+            ],
         ]);
 
         $client = $request->user()?->client;
@@ -107,27 +143,55 @@ class ClientWalletApiController extends Controller
         $packItem = $product->packItems->firstWhere('id', (int) $data['pack_item_id']);
         abort_if(! $packItem, 422, 'Opção de pack inválida.');
 
-        $baseUrl = rtrim(config('app.url'), '/');
-        $successUrl = config('services.stripe.success_url') ?: $baseUrl.'/checkout/stripe/sucesso?session_id={CHECKOUT_SESSION_ID}';
-        $cancelUrl = config('services.stripe.cancel_url') ?: $baseUrl.'/checkout/stripe/cancelado';
-
-        $checkout = $stripeCheckout->createPendingPackCheckout(
+        $checkout = $stripeCheckout->createPendingPackPaymentSheet(
             $client,
             $product,
             $packItem,
             $data['quantity'] ?? 1,
-            $successUrl,
-            $cancelUrl,
             (bool) $data['wants_invoice'],
             $data
         );
 
         return $this->success([
-            'checkout_url' => $checkout['session']->url,
-            'checkout_session_id' => $checkout['session']->id,
+            'payment_intent_id' => $checkout['paymentIntent']->id,
+            'payment_intent_client_secret' => $checkout['paymentIntent']->client_secret,
+            'customer_id' => $checkout['customer']->id,
+            'customer_ephemeral_key_secret' => $checkout['ephemeralKey']->secret,
             'transaction_id' => $checkout['transaction']->id,
             'invoice_id' => $checkout['invoice']->id,
             'publishable_key' => config('services.stripe.public_key'),
-        ], 'Checkout criado e documento pendente registado.');
+            'amount' => (float) $checkout['invoice']->total,
+            'currency' => 'eur',
+        ], 'Pagamento preparado e documento pendente registado.');
+    }
+
+    public function finalize(Request $request, StripeCheckoutService $stripeCheckout): JsonResponse
+    {
+        abort_unless($this->isClientUser(), 403);
+
+        $data = $request->validate([
+            'payment_intent_id' => ['required', 'string', 'max:255'],
+        ]);
+
+        $client = $request->user()?->client;
+        abort_if(! $client, 403);
+
+        $stripeCheckout->syncPaymentIntent($data['payment_intent_id']);
+        $stripeCheckout->syncPendingForClient($client);
+
+        return $this->success([], 'Pagamento sincronizado.');
+    }
+
+    public function cancel(Request $request, StripeCheckoutService $stripeCheckout): JsonResponse
+    {
+        abort_unless($this->isClientUser(), 403);
+
+        $data = $request->validate([
+            'payment_intent_id' => ['required', 'string', 'max:255'],
+        ]);
+
+        $stripeCheckout->cancelPaymentIntent($data['payment_intent_id']);
+
+        return $this->success([], 'Pagamento cancelado e documento removido.');
     }
 }

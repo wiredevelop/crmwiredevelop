@@ -628,6 +628,9 @@ const removeInstallment = (installment) => {
                                         <div v-if="sale.document_number" class="text-xs text-gray-500">
                                             Documento: {{ sale.document_number }}
                                         </div>
+                                        <div v-if="sale.payment_reference" class="text-xs text-gray-500">
+                                            Stripe: {{ sale.payment_reference }}
+                                        </div>
                                         <div v-if="sale.billing?.provider === 'stripe'" class="mt-1 text-xs">
                                             <span class="font-medium" :class="sale.billing.wants_invoice ? 'text-emerald-700' : 'text-gray-500'">
                                                 {{ sale.billing.wants_invoice ? 'Cliente pediu documento com NIF' : 'Sem pedido de documento com NIF' }}
