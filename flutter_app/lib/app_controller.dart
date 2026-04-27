@@ -15,13 +15,10 @@ class AppController extends ChangeNotifier {
     defaultValue: 'https://crm.wiredevelop.pt/api/v1',
   );
   static const String legacyBaseUrl = 'https://srv1.wiredevelop.pt/api/v1';
-  static const String defaultApiEmail = 'admin@wirecrm.local';
-  static const String defaultApiPassword = 'password';
-
   bool _isReady = false;
   String _baseUrl = defaultBaseUrl;
-  String _apiEmail = defaultApiEmail;
-  String _apiPassword = defaultApiPassword;
+  String _apiEmail = '';
+  String _apiPassword = '';
   String? _token;
   Map<String, dynamic>? _user;
   bool _biometricEnabled = false;
