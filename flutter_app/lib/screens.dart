@@ -4592,6 +4592,20 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
     return secs > 0 ? '$base ${secs.toString().padLeft(2, '0')}s' : base;
   }
 
+  dynamic _transactionDurationSeconds(Map<String, dynamic> item) {
+    if (item['seconds'] != null) {
+      return item['seconds'];
+    }
+
+    final intervention = (item['intervention'] as Map?)
+        ?.cast<String, dynamic>();
+    if (intervention != null && intervention['total_seconds'] != null) {
+      return intervention['total_seconds'];
+    }
+
+    return 0;
+  }
+
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
@@ -4670,7 +4684,7 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
                                       child: Align(
                                         alignment: Alignment.centerLeft,
                                         child: Text(
-                                          '${item['description'] ?? 'Transação'} · ${moneyOrDash(item['amount'])}\n${_formatHours(item['seconds'])} · ${formatDate(item['transaction_at'])}',
+                                          '${item['description'] ?? 'Transação'} · ${moneyOrDash(item['amount'])}\n${_formatHours(_transactionDurationSeconds(item))} · ${formatDate(item['transaction_at'])}',
                                         ),
                                       ),
                                     );
