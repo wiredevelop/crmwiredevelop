@@ -160,6 +160,9 @@ const isInvoiced = (sale) =>
     !!(sale.to_invoice || sale.invoice_id || sale.invoiced)
 
 const isSelectable = (sale) => {
+    if (resolveSource(sale) === 'terminal') {
+        return false
+    }
     if (isPackIntervention(sale)) {
         return false
     }
@@ -639,6 +642,9 @@ const removeInstallment = (installment) => {
                                                 {{ sale.billing.name || '—' }} · {{ sale.billing.vat || 'Sem NIF' }}
                                             </div>
                                         </div>
+                                        <div v-if="sale.billing?.provider === 'stripe_terminal'" class="mt-1 text-xs text-gray-600">
+                                            Operador: {{ sale.billing.operator || '—' }} · Líquido: {{ formatAmount(sale.billing.net_amount) }} € · Taxa: {{ formatAmount(sale.billing.fee_amount) }} €
+                                        </div>
                                     </td>
                                     <td class="py-2 px-2">{{ formatAmount(sale.amount) }} €</td>
                                     <td class="py-2 px-2">{{ formatDate(sale.date) }}</td>
@@ -734,6 +740,20 @@ const removeInstallment = (installment) => {
                                                         </div>
                                                         <div class="text-xs text-gray-600">
                                                             {{ sale.billing.vat || 'Sem NIF' }} · {{ sale.billing.address || '—' }} · {{ sale.billing.postal_code || '—' }} {{ sale.billing.city || '' }} {{ sale.billing.country || '' }}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="sale.billing?.provider === 'stripe_terminal'">
+                                                    <td class="w-40 text-gray-500">Terminal Stripe</td>
+                                                    <td>
+                                                        <div class="text-xs text-gray-600">
+                                                            Estado: {{ sale.billing.status || '—' }} · Operador: {{ sale.billing.operator || '—' }}
+                                                        </div>
+                                                        <div class="text-xs text-gray-600">
+                                                            Líquido: {{ formatAmount(sale.billing.net_amount) }} € · Taxa: {{ formatAmount(sale.billing.fee_amount) }} €
+                                                        </div>
+                                                        <div class="text-xs text-gray-600">
+                                                            Cartão: {{ sale.billing.card_brand || '—' }} · {{ sale.billing.card_last4 || '—' }} · Charge: {{ sale.billing.charge_id || '—' }}
                                                         </div>
                                                     </td>
                                                 </tr>

@@ -48,6 +48,9 @@ return [
         'api_version' => env('STRIPE_API_VERSION', '2026-02-25.clover'),
         'success_url' => env('STRIPE_SUCCESS_URL'),
         'cancel_url' => env('STRIPE_CANCEL_URL'),
+        'terminal_location_id' => env('STRIPE_TERMINAL_LOCATION_ID'),
+        'terminal_fee_percent' => (float) env('STRIPE_TERMINAL_FEE_PERCENT', 0),
+        'terminal_fee_fixed' => (float) env('STRIPE_TERMINAL_FEE_FIXED', 0),
     ],
 
 ];

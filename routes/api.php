@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\ProjectMessageApiController;
 use App\Http\Controllers\Api\QuoteApiController;
 use App\Http\Controllers\Api\SettingsApiController;
 use App\Http\Controllers\Api\StripeWebhookApiController;
+use App\Http\Controllers\Api\StripeTerminalController;
 use App\Http\Controllers\Api\WalletApiController;
 use Illuminate\Support\Facades\Route;
 
@@ -45,6 +46,9 @@ Route::prefix('v1')->as('api.')->group(function () {
         Route::post('/wallet/checkout', [ClientWalletApiController::class, 'checkout']);
         Route::post('/wallet/checkout/finalize', [ClientWalletApiController::class, 'finalize']);
         Route::post('/wallet/checkout/cancel', [ClientWalletApiController::class, 'cancel']);
+        Route::get('/stripe/connection-token', [StripeTerminalController::class, 'connectionToken'])->middleware('admin.only');
+        Route::post('/stripe/payment-intent', [StripeTerminalController::class, 'paymentIntent'])->middleware('admin.only');
+        Route::post('/stripe/payment-intent/sync', [StripeTerminalController::class, 'sync'])->middleware('admin.only');
 
         Route::apiResource('clients', ClientApiController::class);
         Route::post('/clients/{client}/notes', [ClientApiController::class, 'storeNote']);

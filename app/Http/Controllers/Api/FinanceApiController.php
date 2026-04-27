@@ -8,6 +8,7 @@ use App\Models\Installment;
 use App\Models\Invoice;
 use App\Models\Project;
 use App\Models\Quote;
+use App\Models\TerminalPayment;
 use App\Models\WalletTransaction;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -109,7 +110,42 @@ class FinanceApiController extends Controller
             })
             ->toBase();
 
-        $sales = $projectSales->merge($productSales)->sortByDesc('sort_at')->values()->map(fn ($item) => Arr::except($item, ['sort_at']))->toArray();
+        $terminalSales = TerminalPayment::query()
+            ->with('user:id,name')
+            ->orderByDesc('updated_at')
+            ->take(200)
+            ->get()
+            ->map(fn ($payment) => [
+                'id' => $payment->id,
+                'source' => 'terminal',
+                'type' => 'Terminal',
+                'client_id' => null,
+                'client' => 'Pagamento presencial',
+                'description' => $payment->description ?: 'Tap to Pay',
+                'amount' => (float) $payment->gross_amount,
+                'date' => $payment->paid_at?->toDateString() ?? $payment->created_at?->toDateString(),
+                'status' => $payment->status,
+                'invoiced' => false,
+                'to_invoice' => false,
+                'invoice_id' => null,
+                'invoice_status' => null,
+                'transaction_id' => $payment->id,
+                'payment_reference' => $payment->payment_intent_id,
+                'billing' => [
+                    'provider' => 'stripe_terminal',
+                    'status' => $payment->status,
+                    'operator' => $payment->user?->name ?? '—',
+                    'card_brand' => $payment->card_brand,
+                    'card_last4' => $payment->card_last4,
+                    'fee_amount' => (float) $payment->fee_amount,
+                    'net_amount' => (float) $payment->net_amount,
+                    'charge_id' => $payment->charge_id,
+                ],
+                'sort_at' => ($payment->paid_at ?? $payment->created_at)?->timestamp ?? 0,
+            ])
+            ->toBase();
+
+        $sales = $projectSales->merge($productSales)->merge($terminalSales)->sortByDesc('sort_at')->values()->map(fn ($item) => Arr::except($item, ['sort_at']))->toArray();
         $projects = Project::with('client:id,name')->where('status', '!=', 'cancelado')->orderBy('name')->get(['id', 'client_id', 'name', 'status'])->map(fn ($project) => [
             'id' => $project->id,
             'name' => $project->name,

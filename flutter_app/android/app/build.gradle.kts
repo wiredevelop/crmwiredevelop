@@ -15,6 +15,10 @@ val hasCodemagicSigning =
     !cmKeyAlias.isNullOrBlank() &&
     !cmKeyPassword.isNullOrBlank()
 
+configurations.configureEach {
+    exclude(module = "bcprov-jdk15to18")
+}
+
 android {
     namespace = "app.wiredevelop.pt"
     compileSdk = flutter.compileSdkVersion
@@ -34,10 +38,19 @@ android {
         applicationId = "app.wiredevelop.pt"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(flutter.minSdkVersion, 26)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+    }
+
+    packaging {
+        resources {
+            pickFirsts += setOf(
+                "org/bouncycastle/x509/CertPathReviewerMessages.properties",
+                "org/bouncycastle/x509/CertPathReviewerMessages_de.properties",
+            )
+        }
     }
 
     signingConfigs {

@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_controller.dart';
 import 'services/api_client.dart';
+import 'services/stripe_terminal_service.dart';
 import 'widgets/ui.dart';
 
 String formatDate(dynamic value) {
@@ -359,6 +360,26 @@ class _LoginScreenState extends State<LoginScreen> {
                                       ),
                                     ),
                             ),
+                            if (_canUseBiometrics &&
+                                widget.controller.hasCachedCredentials &&
+                                !widget.controller.biometricEnabled) ...[
+                              const SizedBox(height: 8),
+                              CupertinoButton(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                ),
+                                onPressed: _loading || _biometricLoading
+                                    ? null
+                                    : _askToEnableBiometrics,
+                                child: const Text(
+                                  'Ativar impressão digital / Face ID',
+                                  style: TextStyle(
+                                    color: CupertinoColors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
                             if (canQuickLogin) ...[
                               const SizedBox(height: 8),
                               CupertinoButton(
@@ -3355,6 +3376,11 @@ class MoreModulesScreen extends StatelessWidget {
               ClientWalletScreen(controller: controller),
             ),
             (
+              'Segurança',
+              CupertinoIcons.lock_shield,
+              SecurityScreen(controller: controller),
+            ),
+            (
               'Documentos',
               CupertinoIcons.doc_plaintext,
               InvoicesScreen(controller: controller),
@@ -3382,6 +3408,11 @@ class MoreModulesScreen extends StatelessWidget {
               FinanceScreen(controller: controller),
             ),
             (
+              'Terminal',
+              CupertinoIcons.creditcard_fill,
+              TapToPayScreen(controller: controller),
+            ),
+            (
               'Intervenções',
               CupertinoIcons.timer,
               InterventionsScreen(controller: controller),
@@ -3400,6 +3431,11 @@ class MoreModulesScreen extends StatelessWidget {
               'Definições',
               CupertinoIcons.gear,
               SettingsScreen(controller: controller),
+            ),
+            (
+              'Segurança',
+              CupertinoIcons.lock_shield,
+              SecurityScreen(controller: controller),
             ),
           ];
 
@@ -3482,6 +3518,473 @@ class MoreModulesScreen extends StatelessWidget {
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class SecurityScreen extends StatefulWidget {
+  const SecurityScreen({super.key, required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<SecurityScreen> createState() => _SecurityScreenState();
+}
+
+class _SecurityScreenState extends State<SecurityScreen> {
+  bool _loading = true;
+  bool _saving = false;
+  bool _canUseBiometrics = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final canUse = await widget.controller.canUseBiometrics();
+    if (!mounted) return;
+    setState(() {
+      _canUseBiometrics = canUse;
+      _loading = false;
+    });
+  }
+
+  Future<void> _toggleBiometrics(bool value) async {
+    if (_saving) return;
+
+    if (!widget.controller.hasCachedCredentials) {
+      await showMessage(
+        context,
+        title: 'Sem login rápido',
+        message:
+            'Entra pelo menos uma vez com email e password neste dispositivo antes de ativar a biometria.',
+      );
+      return;
+    }
+
+    if (value) {
+      final authenticated = await widget.controller
+          .authenticateWithBiometrics();
+      if (!authenticated) {
+        if (!mounted) return;
+        await showMessage(
+          context,
+          title: 'Biometria',
+          message: 'A ativação biométrica foi cancelada ou falhou.',
+        );
+        return;
+      }
+    }
+
+    setState(() => _saving = true);
+    await widget.controller.setBiometricEnabled(value);
+    if (!mounted) return;
+    setState(() => _saving = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: const Text('Segurança'),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: _load,
+          child: const Icon(CupertinoIcons.refresh),
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppGradientBackground(),
+          SafeArea(
+            child: _loading
+                ? const Center(child: CupertinoActivityIndicator(radius: 16))
+                : ListView(
+                    physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      CardSection(
+                        title: 'Login biométrico',
+                        child: !_canUseBiometrics
+                            ? const Text(
+                                'Este dispositivo não tem biometria disponível para a app.',
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    widget.controller.biometricEnabled
+                                        ? 'Impressão digital / Face ID ativa.'
+                                        : 'Impressão digital / Face ID inativa.',
+                                  ),
+                                  const SizedBox(height: 10),
+                                  Row(
+                                    children: [
+                                      const Expanded(
+                                        child: Text(
+                                          'Usar biometria para entrar mais rápido',
+                                        ),
+                                      ),
+                                      CupertinoSwitch(
+                                        value:
+                                            widget.controller.biometricEnabled,
+                                        onChanged: _saving
+                                            ? null
+                                            : _toggleBiometrics,
+                                      ),
+                                    ],
+                                  ),
+                                  if (_saving) ...[
+                                    const SizedBox(height: 12),
+                                    const CupertinoActivityIndicator(),
+                                  ],
+                                ],
+                              ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class TapToPayScreen extends StatefulWidget {
+  const TapToPayScreen({super.key, required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<TapToPayScreen> createState() => _TapToPayScreenState();
+}
+
+class _TapToPayScreenState extends State<TapToPayScreen> {
+  late final StripeTerminalService _terminalService;
+  final TextEditingController _amountController = TextEditingController();
+  final TextEditingController _descriptionController = TextEditingController(
+    text: 'Pagamento presencial WireDevelop',
+  );
+  Map<String, dynamic>? _lastPayment;
+
+  @override
+  void initState() {
+    super.initState();
+    _terminalService = StripeTerminalService(controller: widget.controller)
+      ..addListener(_onTerminalChanged);
+    _bootstrap();
+  }
+
+  @override
+  void dispose() {
+    _terminalService.removeListener(_onTerminalChanged);
+    _terminalService.dispose();
+    _amountController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _bootstrap() async {
+    try {
+      await _terminalService.initialize();
+    } catch (_) {}
+  }
+
+  void _onTerminalChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  int get _baseAmountCents {
+    final raw = _amountController.text
+        .trim()
+        .replaceAll('.', '')
+        .replaceAll(',', '.');
+    final value = num.tryParse(raw) ?? 0;
+    return (value * 100).round();
+  }
+
+  int get _grossAmountCents =>
+      _terminalService.calculateGrossCents(_baseAmountCents);
+
+  int get _feeAmountCents =>
+      _terminalService.calculateFeeCents(_grossAmountCents);
+
+  Future<void> _connect() async {
+    try {
+      await _terminalService.connectLocalReader();
+    } catch (error) {
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Tap to Pay',
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  Future<void> _charge() async {
+    if (_baseAmountCents <= 0) {
+      await showMessage(
+        context,
+        title: 'Valor inválido',
+        message: 'Indica o valor base que queres receber.',
+      );
+      return;
+    }
+
+    try {
+      final result = await _terminalService.processPayment(
+        _grossAmountCents,
+        description: _descriptionController.text.trim().isEmpty
+            ? null
+            : _descriptionController.text.trim(),
+      );
+      if (!mounted) return;
+      setState(
+        () =>
+            _lastPayment = (result['payment'] as Map?)?.cast<String, dynamic>(),
+      );
+      await showMessage(
+        context,
+        title: 'Pagamento concluído',
+        message: 'O pagamento presencial foi confirmado com sucesso.',
+      );
+    } catch (error) {
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Erro no terminal',
+        message: error.toString().replaceFirst('Exception: ', ''),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final status = _terminalService.statusMessage ?? 'Sem estado.';
+    final feeAmount = _feeAmountCents / 100;
+    final grossAmount = _grossAmountCents / 100;
+    final baseAmount = _baseAmountCents / 100;
+
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: const Text('Terminal'),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: _bootstrap,
+              child: const Icon(CupertinoIcons.refresh),
+            ),
+            CupertinoButton(
+              padding: const EdgeInsets.only(left: 10),
+              onPressed: widget.controller.logout,
+              child: const Icon(CupertinoIcons.square_arrow_right),
+            ),
+          ],
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppGradientBackground(),
+          SafeArea(
+            child: ListView(
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.all(16),
+              children: [
+                CardSection(
+                  title: 'Estado do terminal',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(status),
+                      const SizedBox(height: 8),
+                      Text(
+                        _terminalService.supported
+                            ? (_terminalService.isConnected
+                                  ? 'Ligado ao leitor local.'
+                                  : 'Tap to Pay disponível neste dispositivo.')
+                            : 'Sem suporte Tap to Pay neste dispositivo.',
+                      ),
+                      if (_terminalService.reader != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Leitor: ${_terminalService.reader?.label ?? _terminalService.reader?.deviceType?.name ?? 'Tap to Pay'}',
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                CardSection(
+                  title: 'Cobrança presencial',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _field(
+                        'Valor base a receber (€)',
+                        _amountController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                      ),
+                      _field(
+                        'Descrição',
+                        _descriptionController,
+                        maxLength: 255,
+                      ),
+                      const SizedBox(height: 4),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: [
+                          _FinanceStatTile(
+                            label: 'Base',
+                            value: money(baseAmount),
+                          ),
+                          _FinanceStatTile(
+                            label: 'Taxa Stripe',
+                            value: money(feeAmount),
+                          ),
+                          _FinanceStatTile(
+                            label: 'Cobrar',
+                            value: money(grossAmount),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Taxa configurada: ${_terminalService.feePercent.toStringAsFixed(2)}% + ${money(_terminalService.feeFixed)}',
+                        style: const TextStyle(
+                          color: Color(0xFF163F41),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: CupertinoButton(
+                              color: const Color(0xFF0E4D50),
+                              borderRadius: BorderRadius.circular(14),
+                              onPressed:
+                                  _terminalService.initializing ||
+                                      _terminalService.discovering ||
+                                      _terminalService.connecting
+                                  ? null
+                                  : _connect,
+                              child:
+                                  _terminalService.initializing ||
+                                      _terminalService.discovering ||
+                                      _terminalService.connecting
+                                  ? const CupertinoActivityIndicator(
+                                      color: CupertinoColors.white,
+                                    )
+                                  : Text(
+                                      _terminalService.isConnected
+                                          ? 'Religar terminal'
+                                          : 'Ligar terminal',
+                                      style: const TextStyle(
+                                        color: CupertinoColors.white,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: CupertinoButton(
+                              color: CupertinoColors.white.withValues(
+                                alpha: 0.16,
+                              ),
+                              borderRadius: BorderRadius.circular(14),
+                              onPressed: _terminalService.isConnected
+                                  ? _terminalService.disconnect
+                                  : null,
+                              child: const Text(
+                                'Desligar',
+                                style: TextStyle(
+                                  color: CupertinoColors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      CupertinoButton(
+                        color: const Color(0xFF163F41),
+                        borderRadius: BorderRadius.circular(14),
+                        onPressed:
+                            _terminalService.processing ||
+                                !_terminalService.supported
+                            ? null
+                            : _charge,
+                        child: _terminalService.processing
+                            ? const CupertinoActivityIndicator(
+                                color: CupertinoColors.white,
+                              )
+                            : const Text(
+                                'Cobrar com Tap to Pay',
+                                style: TextStyle(
+                                  color: CupertinoColors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_lastPayment != null)
+                  CardSection(
+                    title: 'Último pagamento',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _InfoLine(
+                          'ID interno',
+                          _lastPayment?['id']?.toString() ?? '—',
+                        ),
+                        _InfoLine(
+                          'PaymentIntent',
+                          _lastPayment?['payment_intent_id']?.toString() ?? '—',
+                        ),
+                        _InfoLine(
+                          'Estado',
+                          _lastPayment?['status']?.toString() ?? '—',
+                        ),
+                        _InfoLine(
+                          'Cobrado',
+                          money(_lastPayment?['gross_amount']),
+                        ),
+                        _InfoLine('Taxa', money(_lastPayment?['fee_amount'])),
+                        _InfoLine(
+                          'Líquido',
+                          money(_lastPayment?['net_amount']),
+                        ),
+                        _InfoLine(
+                          'Cartão',
+                          '${_lastPayment?['card_brand'] ?? '—'} · ${_lastPayment?['card_last4'] ?? '—'}',
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Support\StripeTerminalService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use App\Support\StripeCheckoutService;
@@ -37,6 +38,7 @@ class StripeWebhookApiController extends Controller
             /** @var array<string, mixed> $paymentIntent */
             $paymentIntent = $event->data->object->toArray();
             app(StripeCheckoutService::class)->handleWebhookPaymentIntent($paymentIntent, $event->type);
+            app(StripeTerminalService::class)->handleWebhookPaymentIntent($paymentIntent, $event->type);
         }
 
         return response()->json(['received' => true]);

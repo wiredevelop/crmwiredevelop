@@ -28,6 +28,12 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Use Face ID para autenticação rápida no Wire CRM.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>O acesso à localização é necessário para aceitar pagamentos presenciais com Stripe Terminal.</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>O acesso Bluetooth é necessário para ligar a leitores compatíveis com Stripe Terminal.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Esta app usa Bluetooth para pagamentos presenciais com Stripe Terminal.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -51,6 +57,10 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
