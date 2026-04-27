@@ -49,10 +49,6 @@ class WalletApiController extends Controller
         $clients = Client::orderBy('name')->get(['id', 'name', 'company']);
         $selectedClientId = $request->query('client_id');
 
-        if (! $selectedClientId && $clients->isNotEmpty()) {
-            $selectedClientId = $clients->first()->id;
-        }
-
         if ($selectedClientId && ! $clients->contains('id', (int) $selectedClientId)) {
             $selectedClientId = null;
         }
