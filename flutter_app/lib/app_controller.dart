@@ -37,30 +37,34 @@ class AppController extends ChangeNotifier {
   ApiClient get client => ApiClient(baseUrl: _baseUrl, token: _token);
 
   Future<void> initialize() async {
-    final storedBaseUrl = await _storage.read(key: 'base_url');
+    try {
+      final storedBaseUrl = await _storage.read(key: 'base_url');
 
-    _baseUrl = normalizeBaseUrl(
-      storedBaseUrl == legacyBaseUrl
-          ? defaultBaseUrl
-          : (storedBaseUrl ?? _baseUrl),
-    );
-    _apiEmail = (await _storage.read(key: 'api_email')) ?? _apiEmail;
-    _apiPassword = (await _storage.read(key: 'api_password')) ?? _apiPassword;
-    _token = await _storage.read(key: 'token');
-    _biometricEnabled =
-        (await _storage.read(key: 'biometric_enabled')) == 'true';
-    final rawUserPayload = await _storage.read(key: 'user_payload');
-    if (rawUserPayload != null && rawUserPayload.isNotEmpty) {
-      final decoded = jsonDecode(rawUserPayload);
-      if (decoded is Map<String, dynamic>) {
-        _user = decoded;
+      _baseUrl = normalizeBaseUrl(
+        storedBaseUrl == legacyBaseUrl
+            ? defaultBaseUrl
+            : (storedBaseUrl ?? _baseUrl),
+      );
+      _apiEmail = (await _storage.read(key: 'api_email')) ?? _apiEmail;
+      _apiPassword = (await _storage.read(key: 'api_password')) ?? _apiPassword;
+      _token = await _storage.read(key: 'token');
+      _biometricEnabled =
+          (await _storage.read(key: 'biometric_enabled')) == 'true';
+      final rawUserPayload = await _storage.read(key: 'user_payload');
+      if (rawUserPayload != null && rawUserPayload.isNotEmpty) {
+        final decoded = jsonDecode(rawUserPayload);
+        if (decoded is Map<String, dynamic>) {
+          _user = decoded;
+        }
+      } else {
+        final rawName = await _storage.read(key: 'user_name');
+        final rawEmail = await _storage.read(key: 'user_email');
+        if (rawName != null || rawEmail != null) {
+          _user = {'name': rawName, 'email': rawEmail};
+        }
       }
-    } else {
-      final rawName = await _storage.read(key: 'user_name');
-      final rawEmail = await _storage.read(key: 'user_email');
-      if (rawName != null || rawEmail != null) {
-        _user = {'name': rawName, 'email': rawEmail};
-      }
+    } catch (_) {
+      await _resetLocalSession();
     }
 
     _isReady = true;
@@ -180,13 +184,30 @@ class AppController extends ChangeNotifier {
       await client.post('/auth/logout');
     } catch (_) {}
 
+    await _resetLocalSession();
+    notifyListeners();
+  }
+
+  Future<void> _resetLocalSession() async {
     _token = null;
     _user = null;
-    await _storage.delete(key: 'token');
-    await _storage.delete(key: 'user_name');
-    await _storage.delete(key: 'user_email');
-    await _storage.delete(key: 'user_payload');
-    notifyListeners();
+    _apiEmail = '';
+    _apiPassword = '';
+    _biometricEnabled = false;
+    _baseUrl = defaultBaseUrl;
+
+    try {
+      await _storage.deleteAll();
+    } catch (_) {
+      await _storage.delete(key: 'token');
+      await _storage.delete(key: 'user_name');
+      await _storage.delete(key: 'user_email');
+      await _storage.delete(key: 'user_payload');
+      await _storage.delete(key: 'api_email');
+      await _storage.delete(key: 'api_password');
+      await _storage.delete(key: 'base_url');
+      await _storage.delete(key: 'biometric_enabled');
+    }
   }
 
   Future<void> _persistUser() async {
