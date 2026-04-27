@@ -31,6 +31,8 @@ class AppController extends ChangeNotifier {
   String? get token => _token;
   Map<String, dynamic>? get user => _user;
   bool get biometricEnabled => _biometricEnabled;
+  bool get hasCachedCredentials =>
+      _apiEmail.trim().isNotEmpty && _apiPassword.isNotEmpty;
   bool get mustChangePassword => _user?['must_change_password'] == true;
   bool get isClientUser => _user?['role'] == 'client';
 
@@ -184,11 +186,18 @@ class AppController extends ChangeNotifier {
       await client.post('/auth/logout');
     } catch (_) {}
 
-    await _resetLocalSession();
+    await _resetLocalSession(
+      preserveQuickLogin: _biometricEnabled && hasCachedCredentials,
+    );
     notifyListeners();
   }
 
-  Future<void> _resetLocalSession() async {
+  Future<void> _resetLocalSession({bool preserveQuickLogin = false}) async {
+    final preservedBaseUrl = _baseUrl;
+    final preservedEmail = _apiEmail;
+    final preservedPassword = _apiPassword;
+    final preservedBiometricEnabled = _biometricEnabled;
+
     _token = null;
     _user = null;
     _apiEmail = '';
@@ -207,6 +216,21 @@ class AppController extends ChangeNotifier {
       await _storage.delete(key: 'api_password');
       await _storage.delete(key: 'base_url');
       await _storage.delete(key: 'biometric_enabled');
+    }
+
+    if (preserveQuickLogin) {
+      _baseUrl = preservedBaseUrl;
+      _apiEmail = preservedEmail;
+      _apiPassword = preservedPassword;
+      _biometricEnabled = preservedBiometricEnabled;
+
+      await _storage.write(key: 'base_url', value: _baseUrl);
+      await _storage.write(key: 'api_email', value: _apiEmail);
+      await _storage.write(key: 'api_password', value: _apiPassword);
+      await _storage.write(
+        key: 'biometric_enabled',
+        value: _biometricEnabled ? 'true' : 'false',
+      );
     }
   }
 

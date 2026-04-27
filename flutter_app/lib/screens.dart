@@ -249,6 +249,17 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     if (enable == true) {
+      final authenticated = await widget.controller
+          .authenticateWithBiometrics();
+      if (!mounted) return;
+
+      if (!authenticated) {
+        setState(
+          () => _error = 'A ativação biométrica foi cancelada ou falhou.',
+        );
+        return;
+      }
+
       await widget.controller.setBiometricEnabled(true);
     }
   }
@@ -256,7 +267,9 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     final canQuickLogin =
-        widget.controller.biometricEnabled && _canUseBiometrics;
+        widget.controller.biometricEnabled &&
+        widget.controller.hasCachedCredentials &&
+        _canUseBiometrics;
 
     return CupertinoPageScaffold(
       child: Stack(
@@ -474,7 +487,7 @@ class _ForcedPasswordChangeScreenState
       await widget.controller.completePasswordChange(
         password: _passwordController.text,
       );
-      await widget.controller.setBiometricEnabled(false);
+      await _askToEnableBiometrics();
     } on ApiException catch (error) {
       setState(() => _error = error.message);
     } catch (_) {
@@ -484,6 +497,48 @@ class _ForcedPasswordChangeScreenState
         setState(() => _saving = false);
       }
     }
+  }
+
+  Future<void> _askToEnableBiometrics() async {
+    if (widget.controller.biometricEnabled) return;
+
+    final canUseBiometrics = await widget.controller.canUseBiometrics();
+    if (!canUseBiometrics || !mounted) return;
+
+    final enable = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Ativar biometria'),
+        content: const Padding(
+          padding: EdgeInsets.only(top: 10),
+          child: Text(
+            'Pode ativar Face ID ou impressão digital para entrar mais rápido neste dispositivo.',
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Agora não'),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Ativar'),
+          ),
+        ],
+      ),
+    );
+
+    if (enable != true || !mounted) return;
+
+    final authenticated = await widget.controller.authenticateWithBiometrics();
+    if (!mounted) return;
+
+    if (!authenticated) {
+      setState(() => _error = 'A ativação biométrica foi cancelada ou falhou.');
+      return;
+    }
+
+    await widget.controller.setBiometricEnabled(true);
   }
 
   @override
