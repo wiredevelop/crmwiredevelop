@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Api\Concerns\RespondsWithJson;
 use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Http\Controllers\Controller;
+use App\Models\ClientCredentialObject;
 use App\Models\Client;
 use App\Models\Installment;
 use App\Models\Invoice;
@@ -28,7 +29,9 @@ class DashboardApiController extends Controller
         $invoicesQuery = $this->scopeByClient(Invoice::query());
 
         $stats = [
-            'total_clients' => $clientsQuery->count(),
+            'total_clients' => $isClientUser
+                ? $this->scopeByClient(ClientCredentialObject::query())->count()
+                : $clientsQuery->count(),
             'active_projects' => (clone $projectsQuery)->where('status', '!=', 'concluido')->where('status', '!=', 'cancelado')->count(),
             'completed_projects' => (clone $projectsQuery)->where('status', 'concluido')->count(),
             'total_invoices' => $invoicesQuery->count(),
@@ -204,6 +207,7 @@ class DashboardApiController extends Controller
 
                 return [
                     'id' => $transaction->id,
+                    'transaction_id' => $transaction->id,
                     'source' => 'transaction',
                     'type' => $transaction->intervention_id ? 'Intervenção' : ($transaction->product?->type === 'pack' ? 'Pack' : 'Produto'),
                     'client_id' => $transaction->wallet?->client_id,
@@ -216,6 +220,7 @@ class DashboardApiController extends Controller
                     'installment_count' => $transaction->installment_count,
                     'to_invoice' => (bool) $transaction->to_invoice,
                     'invoice_id' => $transaction->invoice_id,
+                    'document_number' => $transaction->invoice?->number,
                     'invoice_status' => $transaction->invoice?->status,
                     'sort_at' => $transaction->transaction_at?->timestamp ?? 0,
                 ];

@@ -15,19 +15,14 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ProjectController;
 use App\Http\Controllers\ProjectCredentialController;
 use App\Http\Controllers\QuoteController;
+use App\Http\Controllers\StripeCheckoutStatusController;
 use App\Http\Controllers\WalletController;
 use App\Http\Controllers\WalletPackController;
 use Illuminate\Support\Facades\Route;
 
 Route::redirect('/', '/login');
-Route::view('/checkout/stripe/sucesso', 'stripe-checkout-status', [
-    'title' => 'Pagamento concluído',
-    'message' => 'O pagamento foi concluído. Já pode voltar à app e atualizar a carteira.',
-]);
-Route::view('/checkout/stripe/cancelado', 'stripe-checkout-status', [
-    'title' => 'Pagamento cancelado',
-    'message' => 'O checkout foi cancelado. Pode voltar à app e escolher outra opção.',
-]);
+Route::get('/checkout/stripe/sucesso', [StripeCheckoutStatusController::class, 'success']);
+Route::get('/checkout/stripe/cancelado', [StripeCheckoutStatusController::class, 'cancel']);
 
 // DASHBOARD
 Route::get('/dashboard', [DashboardController::class, 'index'])

@@ -24,6 +24,10 @@ class ClientWalletApiController extends Controller
     {
         abort_unless($this->isClientUser(), 403);
 
+        $client = request()->user()?->client;
+        abort_if(! $client, 403);
+        app(StripeCheckoutService::class)->syncPendingForClient($client);
+
         $wallet = Wallet::firstOrCreate(
             ['client_id' => $this->currentClientId()],
             ['balance_seconds' => 0, 'balance_amount' => 0]
@@ -82,6 +86,15 @@ class ClientWalletApiController extends Controller
             'product_id' => ['required', 'integer', 'exists:products,id'],
             'pack_item_id' => ['required', 'integer', 'exists:pack_items,id'],
             'quantity' => ['nullable', 'integer', 'min:1', 'max:99'],
+            'wants_invoice' => ['required', 'boolean'],
+            'billing_name' => ['nullable', 'string', 'max:255'],
+            'billing_email' => ['nullable', 'email', 'max:255'],
+            'billing_phone' => ['nullable', 'string', 'max:255'],
+            'billing_vat' => ['nullable', 'string', 'max:255'],
+            'billing_address' => ['nullable', 'string', 'max:255'],
+            'billing_postal_code' => ['nullable', 'string', 'max:30'],
+            'billing_city' => ['nullable', 'string', 'max:255'],
+            'billing_country' => ['nullable', 'string', 'size:2'],
         ]);
 
         $client = $request->user()?->client;
@@ -98,19 +111,23 @@ class ClientWalletApiController extends Controller
         $successUrl = config('services.stripe.success_url') ?: $baseUrl.'/checkout/stripe/sucesso?session_id={CHECKOUT_SESSION_ID}';
         $cancelUrl = config('services.stripe.cancel_url') ?: $baseUrl.'/checkout/stripe/cancelado';
 
-        $session = $stripeCheckout->createPackCheckoutSession(
+        $checkout = $stripeCheckout->createPendingPackCheckout(
             $client,
             $product,
             $packItem,
             $data['quantity'] ?? 1,
             $successUrl,
-            $cancelUrl
+            $cancelUrl,
+            (bool) $data['wants_invoice'],
+            $data
         );
 
         return $this->success([
-            'checkout_url' => $session->url,
-            'checkout_session_id' => $session->id,
+            'checkout_url' => $checkout['session']->url,
+            'checkout_session_id' => $checkout['session']->id,
+            'transaction_id' => $checkout['transaction']->id,
+            'invoice_id' => $checkout['invoice']->id,
             'publishable_key' => config('services.stripe.public_key'),
-        ]);
+        ], 'Checkout criado e documento pendente registado.');
     }
 }

@@ -622,7 +622,21 @@ const removeInstallment = (installment) => {
                                     </td>
                                     <td class="py-2 px-2 font-medium">{{ sale.type }}</td>
                                     <td class="py-2 px-2">{{ sale.client }}</td>
-                                    <td class="py-2 px-2">{{ sale.description }}</td>
+                                    <td class="py-2 px-2">
+                                        <div class="font-medium">{{ sale.description }}</div>
+                                        <div class="text-xs text-gray-500">ID interno #{{ sale.transaction_id || sale.id }}</div>
+                                        <div v-if="sale.document_number" class="text-xs text-gray-500">
+                                            Documento: {{ sale.document_number }}
+                                        </div>
+                                        <div v-if="sale.billing?.provider === 'stripe'" class="mt-1 text-xs">
+                                            <span class="font-medium" :class="sale.billing.wants_invoice ? 'text-emerald-700' : 'text-gray-500'">
+                                                {{ sale.billing.wants_invoice ? 'Cliente pediu documento com NIF' : 'Sem pedido de documento com NIF' }}
+                                            </span>
+                                            <div v-if="sale.billing.wants_invoice" class="text-gray-600">
+                                                {{ sale.billing.name || '—' }} · {{ sale.billing.vat || 'Sem NIF' }}
+                                            </div>
+                                        </div>
+                                    </td>
                                     <td class="py-2 px-2">{{ formatAmount(sale.amount) }} €</td>
                                     <td class="py-2 px-2">{{ formatDate(sale.date) }}</td>
                                     <td class="py-2 px-2">{{ invoiceStatusLabel(sale) }}</td>
@@ -702,6 +716,23 @@ const removeInstallment = (installment) => {
                                                 <tr>
                                                     <td class="w-40 text-gray-500">Valor/hora</td>
                                                     <td>{{ formatRate(sale) }}</td>
+                                                </tr>
+                                                <tr v-if="sale.billing?.provider === 'stripe'">
+                                                    <td class="w-40 text-gray-500">Faturação Stripe</td>
+                                                    <td>
+                                                        <div class="text-xs text-gray-600">
+                                                            Estado checkout: {{ sale.billing.status || '—' }}
+                                                        </div>
+                                                        <div class="text-xs text-gray-600">
+                                                            Pedido com NIF: {{ sale.billing.wants_invoice ? 'Sim' : 'Não' }}
+                                                        </div>
+                                                        <div class="text-xs text-gray-600">
+                                                            {{ sale.billing.name || '—' }} · {{ sale.billing.email || '—' }} · {{ sale.billing.phone || '—' }}
+                                                        </div>
+                                                        <div class="text-xs text-gray-600">
+                                                            {{ sale.billing.vat || 'Sem NIF' }} · {{ sale.billing.address || '—' }} · {{ sale.billing.postal_code || '—' }} {{ sale.billing.city || '' }} {{ sale.billing.country || '' }}
+                                                        </div>
+                                                    </td>
                                                 </tr>
                                             </tbody>
                                         </table>

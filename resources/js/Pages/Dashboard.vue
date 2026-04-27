@@ -127,7 +127,7 @@ const registeredInvoicesFiltered = computed(() =>
         >
 
             <div class="bg-white rounded shadow p-4">
-                <p class="text-xs text-gray-500">Clientes</p>
+                <p class="text-xs text-gray-500">{{ isClientUser ? 'Objetos' : 'Clientes' }}</p>
                 <p class="text-2xl font-semibold">{{ stats.total_clients }}</p>
             </div>
 

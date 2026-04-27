@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Models\Client;
+use App\Models\ClientCredentialObject;
 use App\Models\Installment;
 use App\Models\Invoice;
 use App\Models\Project;
@@ -26,7 +27,9 @@ class DashboardController extends Controller
         $invoicesQuery = $this->scopeByClient(Invoice::query());
 
         $stats = [
-            'total_clients' => $clientsQuery->count(),
+            'total_clients' => $isClientUser
+                ? $this->scopeByClient(ClientCredentialObject::query())->count()
+                : $clientsQuery->count(),
             'active_projects' => (clone $projectsQuery)->where('status', '!=', 'concluido')
                 ->where('status', '!=', 'cancelado')
                 ->count(),
@@ -263,6 +266,7 @@ class DashboardController extends Controller
 
                 return [
                     'id' => $transaction->id,
+                    'transaction_id' => $transaction->id,
                     'source' => 'transaction',
                     'type' => $transaction->intervention_id
                         ? 'Intervenção'
@@ -277,6 +281,7 @@ class DashboardController extends Controller
                     'installment_count' => $transaction->installment_count,
                     'to_invoice' => (bool) $transaction->to_invoice,
                     'invoice_id' => $transaction->invoice_id,
+                    'document_number' => $transaction->invoice?->number,
                     'invoice_status' => $transaction->invoice?->status,
                     'sort_at' => $transaction->transaction_at?->timestamp ?? 0,
                 ];

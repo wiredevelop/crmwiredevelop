@@ -76,6 +76,7 @@ class FinanceController extends Controller
 
                 return [
                     'id' => $transaction->id,
+                    'transaction_id' => $transaction->id,
                     'source' => 'transaction',
                     'type' => $transaction->intervention_id
                         ? 'Intervenção'
@@ -90,7 +91,23 @@ class FinanceController extends Controller
                     'installment_count' => $transaction->installment_count,
                     'to_invoice' => (bool) $transaction->to_invoice,
                     'invoice_id' => $transaction->invoice_id,
+                    'document_number' => $transaction->invoice?->number,
                     'invoice_status' => $transaction->invoice?->status,
+                    'billing' => $transaction->payment_provider === 'stripe'
+                        ? [
+                            'provider' => 'stripe',
+                            'wants_invoice' => (bool) data_get($transaction->payment_metadata, 'wants_invoice'),
+                            'status' => data_get($transaction->payment_metadata, 'status'),
+                            'name' => data_get($transaction->payment_metadata, 'billing.billing_name'),
+                            'email' => data_get($transaction->payment_metadata, 'billing.billing_email'),
+                            'phone' => data_get($transaction->payment_metadata, 'billing.billing_phone'),
+                            'vat' => data_get($transaction->payment_metadata, 'billing.billing_vat'),
+                            'address' => data_get($transaction->payment_metadata, 'billing.billing_address'),
+                            'postal_code' => data_get($transaction->payment_metadata, 'billing.billing_postal_code'),
+                            'city' => data_get($transaction->payment_metadata, 'billing.billing_city'),
+                            'country' => data_get($transaction->payment_metadata, 'billing.billing_country'),
+                        ]
+                        : null,
                     'intervention' => $transaction->intervention ? [
                         'notes' => $transaction->intervention->notes,
                         'finish_notes' => $transaction->intervention->finish_notes,

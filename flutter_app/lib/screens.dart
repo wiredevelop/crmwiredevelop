@@ -824,7 +824,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           runSpacing: 12,
                           children: [
                             _StatChip(
-                              label: 'Clientes',
+                              label: widget.controller.isClientUser
+                                  ? 'Objetos'
+                                  : 'Clientes',
                               value:
                                   _payload?['stats']?['total_clients']
                                       ?.toString() ??
@@ -5276,9 +5278,21 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
   List<dynamic> _packs = [];
   String? _packProductId;
   String? _packItemId;
+  bool _wantsInvoice = false;
   final TextEditingController _packQuantityController = TextEditingController(
     text: '1',
   );
+  final TextEditingController _billingNameController = TextEditingController();
+  final TextEditingController _billingEmailController = TextEditingController();
+  final TextEditingController _billingPhoneController = TextEditingController();
+  final TextEditingController _billingVatController = TextEditingController();
+  final TextEditingController _billingAddressController =
+      TextEditingController();
+  final TextEditingController _billingPostalCodeController =
+      TextEditingController();
+  final TextEditingController _billingCityController = TextEditingController();
+  final TextEditingController _billingCountryController =
+      TextEditingController();
 
   @override
   void initState() {
@@ -5289,6 +5303,14 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
   @override
   void dispose() {
     _packQuantityController.dispose();
+    _billingNameController.dispose();
+    _billingEmailController.dispose();
+    _billingPhoneController.dispose();
+    _billingVatController.dispose();
+    _billingAddressController.dispose();
+    _billingPostalCodeController.dispose();
+    _billingCityController.dispose();
+    _billingCountryController.dispose();
     super.dispose();
   }
 
@@ -5311,12 +5333,16 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
         }
         _syncPackItemSelection();
       });
+      _prefillBillingFromWallet();
     } on ApiException catch (error) {
       setState(() => _error = error.message);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
+
+  Map<String, dynamic>? get _walletClient =>
+      (_wallet?['client'] as Map?)?.cast<String, dynamic>();
 
   String _formatHours(dynamic secondsValue) {
     final seconds = secondsValue is num
@@ -5348,6 +5374,14 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
   List<Map<String, dynamic>> get _packProducts =>
       _packs.map((item) => (item as Map).cast<String, dynamic>()).toList();
 
+  Map<String, dynamic>? get _selectedPackProduct {
+    if (_packProductId == null) return null;
+    final matches = _packProducts.where(
+      (item) => item['id']?.toString() == _packProductId,
+    );
+    return matches.isEmpty ? null : matches.first;
+  }
+
   List<Map<String, dynamic>> get _selectedPackItems {
     final product = _packProducts.firstWhere(
       (item) => item['id']?.toString() == _packProductId,
@@ -5371,10 +5405,7 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
   }
 
   String get _selectedPackProductLabel {
-    final product = _packProducts.firstWhere(
-      (item) => item['id']?.toString() == _packProductId,
-      orElse: () => <String, dynamic>{},
-    );
+    final product = _selectedPackProduct ?? <String, dynamic>{};
     return product['name']?.toString() ?? 'Selecionar pack';
   }
 
@@ -5385,6 +5416,78 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
     );
     if (item.isEmpty) return 'Selecionar opção';
     return '${item['hours']}h · ${moneyOrDash(item['pack_price'])} · ${item['validity_months']} meses';
+  }
+
+  String? _trimmed(TextEditingController controller) {
+    final value = controller.text.trim();
+    return value.isEmpty ? null : value;
+  }
+
+  void _prefillBillingFromWallet() {
+    final client = _walletClient;
+    if (client == null) return;
+
+    _billingNameController.text =
+        client['billing_name']?.toString().trim().isNotEmpty == true
+        ? client['billing_name'].toString()
+        : (client['name']?.toString() ?? '');
+    _billingEmailController.text =
+        client['billing_email']?.toString().trim().isNotEmpty == true
+        ? client['billing_email'].toString()
+        : (client['email']?.toString() ?? '');
+    _billingPhoneController.text =
+        client['billing_phone']?.toString().trim().isNotEmpty == true
+        ? client['billing_phone'].toString()
+        : (client['phone']?.toString() ?? '');
+    _billingVatController.text =
+        client['billing_vat']?.toString().trim().isNotEmpty == true
+        ? client['billing_vat'].toString()
+        : (client['vat']?.toString() ?? '');
+    _billingAddressController.text =
+        client['billing_address']?.toString().trim().isNotEmpty == true
+        ? client['billing_address'].toString()
+        : '';
+    _billingPostalCodeController.text =
+        client['billing_postal_code']?.toString() ?? '';
+    _billingCityController.text = client['billing_city']?.toString() ?? '';
+    _billingCountryController.text =
+        (client['billing_country']?.toString() ?? '').toUpperCase();
+  }
+
+  Future<void> _openSelectedPackDocument() async {
+    final product = _selectedPackProduct;
+    if (product == null) return;
+    await _openDocument(
+      context,
+      widget.controller,
+      '/documents/products/${product['id']}/pdf',
+    );
+  }
+
+  String _transactionStatusLabel(Map<String, dynamic> item) {
+    final payment = (item['payment_metadata'] as Map?)?.cast<String, dynamic>();
+    final invoice = (item['invoice'] as Map?)?.cast<String, dynamic>();
+    final paymentStatus = payment?['status']?.toString();
+    if (paymentStatus == 'paid') return 'Pago';
+    if (paymentStatus == 'pending') return 'Pendente';
+    if (paymentStatus == 'failed') return 'Falhado';
+    if (invoice?['status']?.toString() == 'pago') return 'Pago';
+    if (invoice?['status']?.toString() == 'pendente') return 'Pendente';
+    return walletTransactionTypeLabel(item['type']?.toString() ?? '');
+  }
+
+  String _transactionSecondaryLine(Map<String, dynamic> item) {
+    final packItem = (item['pack_item'] as Map?)?.cast<String, dynamic>();
+    final quantity =
+        int.tryParse(
+          ((item['payment_metadata'] as Map?)?['quantity']?.toString() ?? '1'),
+        ) ??
+        1;
+    final duration =
+        item['type']?.toString() == 'purchase' && packItem?['hours'] != null
+        ? '+${packItem!['hours']}h${quantity > 1 ? ' × $quantity' : ''}'
+        : _formatHours(_transactionDurationSeconds(item));
+    return '$duration · ${formatDate(item['transaction_at'])}';
   }
 
   Future<void> _pickClientPackProduct() async {
@@ -5480,6 +5583,26 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
 
   Future<void> _openCheckout() async {
     if (_packProductId == null || _packItemId == null) return;
+    if (_wantsInvoice) {
+      final missing = <String>[
+        if (_trimmed(_billingNameController) == null) 'nome',
+        if (_trimmed(_billingEmailController) == null) 'email',
+        if (_trimmed(_billingVatController) == null) 'NIF',
+        if (_trimmed(_billingAddressController) == null) 'morada',
+        if (_trimmed(_billingPostalCodeController) == null) 'código postal',
+        if (_trimmed(_billingCityController) == null) 'cidade',
+        if (_trimmed(_billingCountryController) == null) 'país',
+      ];
+      if (missing.isNotEmpty) {
+        await showMessage(
+          context,
+          title: 'Dados em falta',
+          message:
+              'Preenche os dados de faturação antes de pedir documento com NIF.',
+        );
+        return;
+      }
+    }
 
     try {
       final result = await widget.controller.client.post(
@@ -5488,6 +5611,15 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
           'product_id': int.parse(_packProductId!),
           'pack_item_id': int.parse(_packItemId!),
           'quantity': int.tryParse(_packQuantityController.text.trim()) ?? 1,
+          'wants_invoice': _wantsInvoice,
+          'billing_name': _trimmed(_billingNameController),
+          'billing_email': _trimmed(_billingEmailController),
+          'billing_phone': _trimmed(_billingPhoneController),
+          'billing_vat': _trimmed(_billingVatController),
+          'billing_address': _trimmed(_billingAddressController),
+          'billing_postal_code': _trimmed(_billingPostalCodeController),
+          'billing_city': _trimmed(_billingCityController),
+          'billing_country': _trimmed(_billingCountryController)?.toUpperCase(),
         },
       );
       final data = (result['data'] as Map).cast<String, dynamic>();
@@ -5503,6 +5635,8 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
           title: 'Não foi possível abrir',
           message: 'Não foi possível abrir o checkout Stripe.',
         );
+      } else if (mounted) {
+        _load();
       }
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -5537,18 +5671,26 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
             : _error != null
             ? ErrorState(message: _error!, onRetry: _load)
             : ListView(
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                cacheExtent: 1100,
                 children: [
                   CardSection(
                     title: 'Saldo',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          _wallet?['client']?['name']?.toString() ?? 'Cliente',
-                        ),
+                        Text(_walletClient?['name']?.toString() ?? 'Cliente'),
                         const SizedBox(height: 6),
                         Text(
                           'Tempo em carteira: ${_formatHours(_wallet?['balance_seconds'])}',
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Valor registado: ${moneyOrDash(_wallet?['balance_amount'])}',
                         ),
                       ],
                     ),
@@ -5564,6 +5706,23 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
                             value: _selectedPackProductLabel,
                             onTap: _pickClientPackProduct,
                           ),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: _selectedPackProduct == null
+                                  ? null
+                                  : _openSelectedPackDocument,
+                              child: const Text(
+                                'Documento explicativo',
+                                style: TextStyle(
+                                  color: Color(0xFF0E4D50),
+                                  decoration: TextDecoration.underline,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
                           _selectorField(
                             label: 'Opção',
                             value: _selectedPackItemLabel,
@@ -5598,6 +5757,33 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
                                 );
                               },
                             ),
+                          ],
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: Text('Pedir documento com NIF'),
+                              ),
+                              CupertinoSwitch(
+                                value: _wantsInvoice,
+                                onChanged: (value) =>
+                                    setState(() => _wantsInvoice = value),
+                              ),
+                            ],
+                          ),
+                          if (_wantsInvoice) ...[
+                            const SizedBox(height: 12),
+                            _field('Nome faturação', _billingNameController),
+                            _field('Email faturação', _billingEmailController),
+                            _field('Telefone', _billingPhoneController),
+                            _field('NIF', _billingVatController),
+                            _field('Morada', _billingAddressController),
+                            _field(
+                              'Código postal',
+                              _billingPostalCodeController,
+                            ),
+                            _field('Cidade', _billingCityController),
+                            _field('País (PT)', _billingCountryController),
                           ],
                           const SizedBox(height: 10),
                           CupertinoButton(
@@ -5650,6 +5836,8 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
                                   builder: (context) {
                                     final item = (raw as Map)
                                         .cast<String, dynamic>();
+                                    final invoice = (item['invoice'] as Map?)
+                                        ?.cast<String, dynamic>();
                                     return Padding(
                                       padding: const EdgeInsets.only(
                                         bottom: 10,
@@ -5657,7 +5845,7 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
                                       child: Align(
                                         alignment: Alignment.centerLeft,
                                         child: Text(
-                                          '${item['description'] ?? 'Transação'} · ${moneyOrDash(item['amount'])}\n${_formatHours(_transactionDurationSeconds(item))} · ${formatDate(item['transaction_at'])}',
+                                          '#${item['id']} · ${item['description'] ?? 'Transação'} · ${moneyOrDash(item['amount'])}\n${_transactionStatusLabel(item)}${invoice?['number'] != null ? ' · ${invoice!['number']}' : ''}\n${_transactionSecondaryLine(item)}',
                                         ),
                                       ),
                                     );
