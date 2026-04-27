@@ -5,10 +5,10 @@ import { computed, ref, watch } from 'vue'
 
 const shortcuts = [
     {
-        title: 'Faturas',
+        title: 'Documentos',
         description: 'Emitir, marcar pago e acompanhar recebimentos.',
         href: '/invoices',
-        action: 'Ver faturas'
+        action: 'Ver documentos'
     },
     {
         title: 'Orçamentos',

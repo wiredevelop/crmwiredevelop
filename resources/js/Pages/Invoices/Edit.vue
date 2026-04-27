@@ -46,14 +46,14 @@ const total = computed(() =>
 
 <template>
     <BaseLayout>
-        <template #title>Pagamento da Fatura</template>
+        <template #title>Pagamento do Documento</template>
 
         <form @submit.prevent="form.put(route('invoices.update', invoice.id))"
             class="bg-white p-6 rounded shadow max-w-3xl mx-auto space-y-6">
 
             <div>
-                <h2 class="text-lg font-semibold">Itens da fatura</h2>
-                <p class="text-sm text-gray-500">Podes faturar varios items na mesma fatura.</p>
+                <h2 class="text-lg font-semibold">Itens do documento</h2>
+                <p class="text-sm text-gray-500">Podes agregar vários itens no mesmo documento.</p>
 
                 <div class="mt-4 space-y-3">
                     <div v-for="(item, index) in form.items" :key="index"

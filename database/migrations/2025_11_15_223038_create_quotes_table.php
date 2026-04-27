@@ -13,8 +13,8 @@ return new class extends Migration
 
             // Ligação ao projeto
             $table->foreignId('project_id')
-                  ->constrained('projects')
-                  ->onDelete('cascade'); // se apaga projeto, apaga orçamento
+                ->constrained('projects')
+                ->onDelete('cascade'); // se apaga projeto, apaga orçamento
 
             $table->string('project_type');
             $table->text('technologies')->nullable();

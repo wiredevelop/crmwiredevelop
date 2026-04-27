@@ -48,7 +48,7 @@ class Invoice extends Model
             ? (int) substr($last->number, -4) + 1
             : 1;
 
-        return 'WD-' . $year . '-' . str_pad($nextNum, 4, '0', STR_PAD_LEFT);
+        return 'WD-'.$year.'-'.str_pad($nextNum, 4, '0', STR_PAD_LEFT);
     }
 
     public function client()

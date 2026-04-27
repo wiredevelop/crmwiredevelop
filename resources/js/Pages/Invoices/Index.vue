@@ -9,6 +9,7 @@ const { invoices, sort, direction } = usePage().props
 const list = invoices.data
 const sortColumn = ref(sort || 'issued_at')
 const sortDirection = ref(direction || 'desc')
+const isClientUser = usePage().props.auth?.user?.role === 'client'
 
 // Função universal de ordenação
 function orderBy(column) {
@@ -58,7 +59,7 @@ function icon(column) {
 
 <template>
     <BaseLayout>
-        <template #title>Faturas</template>
+        <template #title>Documentos</template>
 
         <div class="bg-white rounded shadow overflow-x-auto">
 
@@ -135,20 +136,20 @@ function icon(column) {
                                 PDF
                             </a>
 
-                            <Link :href="route('invoices.edit', inv.id)" class="text-blue-600 text-xs">
+                            <Link v-if="!isClientUser" :href="route('invoices.edit', inv.id)" class="text-blue-600 text-xs">
                                 Editar
                             </Link>
 
-                            <button v-if="inv.status !== 'pago'" @click="markPaid(inv.id)"
+                            <button v-if="!isClientUser && inv.status !== 'pago'" @click="markPaid(inv.id)"
                                 class="text-green-600 text-xs">
                                 Pago
                             </button>
 
-                            <button v-else @click="markPending(inv.id)" class="text-red-600 text-xs">
+                            <button v-else-if="!isClientUser" @click="markPending(inv.id)" class="text-red-600 text-xs">
                                 Pendente
                             </button>
 
-                            <button v-if="inv.status !== 'pago'" @click="uninvoice(inv.id)"
+                            <button v-if="!isClientUser && inv.status !== 'pago'" @click="uninvoice(inv.id)"
                                 class="text-red-600 text-xs">
                                 Desfaturar
                             </button>

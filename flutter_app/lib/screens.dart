@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -22,6 +24,37 @@ String money(dynamic value) {
     symbol: '€',
     decimalDigits: 2,
   ).format(number);
+}
+
+String moneyOrDash(dynamic value) {
+  if (value == null || value.toString().isEmpty) return '—';
+  return money(value);
+}
+
+String signedHours(dynamic secondsValue) {
+  final seconds = secondsValue is num
+      ? secondsValue.toInt()
+      : int.tryParse(secondsValue?.toString() ?? '0') ?? 0;
+  final sign = seconds < 0 ? '-' : '';
+  final abs = seconds.abs();
+  final hrs = abs ~/ 3600;
+  final mins = (abs % 3600) ~/ 60;
+  final secs = abs % 60;
+  final base = '$sign${hrs}h ${mins.toString().padLeft(2, '0')}m';
+  return secs > 0 ? '$base ${secs.toString().padLeft(2, '0')}s' : base;
+}
+
+String walletTransactionTypeLabel(String type) {
+  switch (type) {
+    case 'purchase':
+      return 'Compra';
+    case 'expense':
+      return 'Gasto';
+    case 'usage':
+      return 'Consumo';
+    default:
+      return 'Ajuste';
+  }
 }
 
 num toNumber(dynamic value) {
@@ -88,7 +121,9 @@ class _LoginScreenState extends State<LoginScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
-      await _askToEnableBiometrics();
+      if (!widget.controller.mustChangePassword) {
+        await _askToEnableBiometrics();
+      }
     } on ApiException catch (error) {
       if (mounted) {
         setState(() => _error = error.message);
@@ -355,6 +390,189 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
+class ForcedPasswordChangeScreen extends StatefulWidget {
+  const ForcedPasswordChangeScreen({super.key, required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<ForcedPasswordChangeScreen> createState() =>
+      _ForcedPasswordChangeScreenState();
+}
+
+class _ForcedPasswordChangeScreenState
+    extends State<ForcedPasswordChangeScreen> {
+  final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _confirmController = TextEditingController();
+  bool _saving = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _passwordController.dispose();
+    _confirmController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_passwordController.text != _confirmController.text) {
+      setState(() => _error = 'As senhas não coincidem.');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+
+    try {
+      await widget.controller.completePasswordChange(
+        password: _passwordController.text,
+      );
+      await widget.controller.setBiometricEnabled(false);
+    } on ApiException catch (error) {
+      setState(() => _error = error.message);
+    } catch (_) {
+      setState(() => _error = 'Não foi possível atualizar a senha.');
+    } finally {
+      if (mounted) {
+        setState(() => _saving = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppGradientBackground(),
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(22),
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: GlassPanel(
+                    padding: const EdgeInsets.fromLTRB(22, 26, 22, 22),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        const Text(
+                          'Alterar senha',
+                          style: TextStyle(
+                            fontSize: 34,
+                            fontWeight: FontWeight.w800,
+                            color: CupertinoColors.white,
+                            letterSpacing: -0.8,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'A conta tem uma senha temporária. Define uma nova senha para continuar.',
+                          style: TextStyle(
+                            color: CupertinoColors.white.withValues(
+                              alpha: 0.72,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        _lineInput(
+                          label: 'Nova senha',
+                          controller: _passwordController,
+                          obscureText: true,
+                        ),
+                        const SizedBox(height: 14),
+                        _lineInput(
+                          label: 'Confirmar senha',
+                          controller: _confirmController,
+                          obscureText: true,
+                        ),
+                        if (_error != null) ...[
+                          const SizedBox(height: 14),
+                          Text(
+                            _error!,
+                            style: const TextStyle(
+                              color: CupertinoColors.systemRed,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 18),
+                        CupertinoButton(
+                          color: CupertinoColors.white.withValues(alpha: 0.95),
+                          borderRadius: BorderRadius.circular(14),
+                          onPressed: _saving ? null : _submit,
+                          child: _saving
+                              ? const CupertinoActivityIndicator(
+                                  color: kBrandColor,
+                                )
+                              : const Text(
+                                  'Guardar nova senha',
+                                  style: TextStyle(
+                                    color: kBrandColor,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                        ),
+                        const SizedBox(height: 8),
+                        CupertinoButton(
+                          onPressed: _saving ? null : widget.controller.logout,
+                          child: const Text(
+                            'Terminar sessão',
+                            style: TextStyle(color: CupertinoColors.white),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _lineInput({
+    required String label,
+    required TextEditingController controller,
+    bool obscureText = false,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: CupertinoColors.white.withValues(alpha: 0.72),
+            fontSize: 13,
+          ),
+        ),
+        const SizedBox(height: 6),
+        CupertinoTextField(
+          controller: controller,
+          obscureText: obscureText,
+          style: const TextStyle(color: CupertinoColors.white, fontSize: 18),
+          cursorColor: CupertinoColors.white,
+          padding: const EdgeInsets.only(bottom: 10, top: 2),
+          decoration: BoxDecoration(
+            color: CupertinoColors.transparent,
+            border: Border(
+              bottom: BorderSide(
+                color: CupertinoColors.white.withValues(alpha: 0.55),
+                width: 1.2,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class HomeShell extends StatelessWidget {
   const HomeShell({super.key, required this.controller});
 
@@ -362,6 +580,7 @@ class HomeShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isClientUser = controller.isClientUser;
     return CupertinoTabScaffold(
       tabBar: CupertinoTabBar(
         backgroundColor: CupertinoColors.white.withValues(alpha: 0.16),
@@ -374,19 +593,19 @@ class HomeShell extends StatelessWidget {
           ),
         ),
         items: [
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(CupertinoIcons.house),
             label: 'Início',
           ),
           BottomNavigationBarItem(
             icon: Icon(CupertinoIcons.person_2),
-            label: 'Clientes',
+            label: isClientUser ? 'Objetos' : 'Clientes',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(CupertinoIcons.folder),
             label: 'Projetos',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(CupertinoIcons.square_grid_2x2),
             label: 'Mais',
           ),
@@ -399,7 +618,9 @@ class HomeShell extends StatelessWidget {
               case 0:
                 return DashboardScreen(controller: controller);
               case 1:
-                return ClientsScreen(controller: controller);
+                return isClientUser
+                    ? ObjectsScreen(controller: controller)
+                    : ClientsScreen(controller: controller);
               case 2:
                 return ProjectsScreen(controller: controller);
               default:
@@ -518,6 +739,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                         ),
                       ),
+                      if (!widget.controller.isClientUser)
+                        CardSection(
+                          title: 'Atalhos rápidos',
+                          child: CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                CupertinoPageRoute(
+                                  builder: (_) => InterventionsScreen(
+                                    controller: widget.controller,
+                                  ),
+                                ),
+                              );
+                            },
+                            child: const Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text('Iniciar intervenção'),
+                            ),
+                          ),
+                        ),
                       CardSection(
                         title: 'Indicadores',
                         child: Wrap(
@@ -545,15 +786,57 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                       ?.toString() ??
                                   '0',
                             ),
-                            _StatChip(
-                              label: 'Faturação paga',
-                              value: money(_payload?['stats']?['paid_amount']),
-                            ),
+                            if (!widget.controller.isClientUser)
+                              _StatChip(
+                                label: 'Faturação paga',
+                                value: money(
+                                  _payload?['stats']?['paid_amount'],
+                                ),
+                              ),
+                            if (widget.controller.isClientUser)
+                              _StatChip(
+                                label: 'Pendentes',
+                                value: money(
+                                  _payload?['stats']?['pending_values'],
+                                ),
+                              ),
                           ],
                         ),
                       ),
+                      if (widget.controller.isClientUser)
+                        CardSection(
+                          title: 'Vendas registadas',
+                          child: _SimpleList(
+                            items: (_payload?['sales'] as List? ?? []),
+                            titleKey: 'description',
+                            subtitleBuilder: (item) =>
+                                '${item['type'] ?? 'Venda'} · ${money(item['amount'])} · ${item['invoice_status'] ?? item['status'] ?? '—'}',
+                          ),
+                        ),
+                      if (widget.controller.isClientUser)
+                        CardSection(
+                          title: 'Parcelas registadas',
+                          child: _SimpleList(
+                            items: (_payload?['installments'] as List? ?? []),
+                            titleKey: 'project',
+                            subtitleBuilder: (item) =>
+                                '${money(item['amount'])} · ${item['invoice'] ?? 'Sem documento'} · ${formatDate(item['paid_at'])}',
+                          ),
+                        ),
+                      if (widget.controller.isClientUser)
+                        CardSection(
+                          title: 'Documentos registados',
+                          child: _SimpleList(
+                            items:
+                                (_payload?['registered_invoices'] as List? ??
+                                []),
+                            titleKey: 'number',
+                            subtitleBuilder: (item) =>
+                                '${item['project']?['name'] ?? '—'} · ${money(item['total'])} · ${item['status'] ?? '—'}',
+                          ),
+                        ),
                       CardSection(
-                        title: 'Últimas faturas',
+                        title: 'Últimos documentos',
                         child: _SimpleList(
                           items: (_payload?['recent_invoices'] as List? ?? []),
                           titleKey: 'number',
@@ -586,6 +869,254 @@ class ClientsScreen extends StatefulWidget {
 
   @override
   State<ClientsScreen> createState() => _ClientsScreenState();
+}
+
+class ObjectsScreen extends StatefulWidget {
+  const ObjectsScreen({super.key, required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<ObjectsScreen> createState() => _ObjectsScreenState();
+}
+
+class _ObjectsScreenState extends State<ObjectsScreen> {
+  bool _loading = true;
+  String? _error;
+  Map<String, dynamic> _client = {};
+  List<dynamic> _objects = [];
+  final Set<int> _revealedPasswords = <int>{};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final result = await widget.controller.client.get('/objects');
+      final data = (result['data'] as Map).cast<String, dynamic>();
+      setState(() {
+        _client = (data['client'] as Map?)?.cast<String, dynamic>() ?? {};
+        _objects = data['objects'] as List<dynamic>? ?? [];
+      });
+    } on ApiException catch (error) {
+      setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _copyPassword(String value) async {
+    if (value.isEmpty) return;
+
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!mounted) return;
+    await showMessage(
+      context,
+      title: 'Senha copiada',
+      message: 'A senha foi copiada para a área de transferência.',
+    );
+  }
+
+  String _statusLabel(String? status) {
+    switch (status) {
+      case 'planeamento':
+        return 'Planeamento';
+      case 'em_andamento':
+        return 'Em andamento';
+      case 'aguardar_conteudos':
+        return 'Aguardar conteúdos';
+      case 'em_revisao':
+        return 'Em revisão';
+      case 'concluido':
+        return 'Concluído';
+      case 'pausado':
+        return 'Pausado';
+      case 'cancelado':
+        return 'Cancelado';
+      default:
+        return status ?? 'Sem estado';
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: const Text('Objetos'),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: _load,
+          child: const Icon(CupertinoIcons.refresh),
+        ),
+      ),
+      child: SafeArea(
+        child: _loading
+            ? const Center(child: CupertinoActivityIndicator(radius: 16))
+            : _error != null
+            ? ErrorState(message: _error!, onRetry: _load)
+            : _objects.isEmpty
+            ? const EmptyState('Sem objetos disponíveis.')
+            : ListView(
+                children: [
+                  CardSection(
+                    title: _client['name']?.toString() ?? 'Cliente',
+                    child: Text(
+                      _client['company']?.toString() ?? 'Objetos e senhas',
+                    ),
+                  ),
+                  for (final rawObject in _objects)
+                    Builder(
+                      builder: (context) {
+                        final object = (rawObject as Map)
+                            .cast<String, dynamic>();
+                        final credentials =
+                            (object['credentials'] as List<dynamic>? ?? []);
+                        final project = (object['project'] as Map?)
+                            ?.cast<String, dynamic>();
+
+                        return CardSection(
+                          title: object['name']?.toString() ?? 'Objeto',
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${object['credentials_count'] ?? credentials.length} senha(s)',
+                              ),
+                              if (project != null) ...[
+                                const SizedBox(height: 6),
+                                Text('Projeto: ${project['name'] ?? '—'}'),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Estado: ${_statusLabel(project['status']?.toString())}',
+                                ),
+                              ],
+                              if ((object['notes']?.toString() ?? '')
+                                  .isNotEmpty) ...[
+                                const SizedBox(height: 6),
+                                Text(object['notes'].toString()),
+                              ],
+                              const SizedBox(height: 12),
+                              if (credentials.isEmpty)
+                                const Text('Sem senhas neste objeto.')
+                              else
+                                for (final rawCredential in credentials)
+                                  Builder(
+                                    builder: (context) {
+                                      final credential = (rawCredential as Map)
+                                          .cast<String, dynamic>();
+                                      final credentialId =
+                                          credential['id'] as int? ?? 0;
+                                      final isVisible = _revealedPasswords
+                                          .contains(credentialId);
+
+                                      return Container(
+                                        margin: const EdgeInsets.only(
+                                          bottom: 10,
+                                        ),
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF4F7F8),
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              credential['label']?.toString() ??
+                                                  'Serviço',
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Utilizador: ${credential['username']?.toString().isNotEmpty == true ? credential['username'] : '—'}',
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Senha: ${isVisible ? credential['password'] ?? '—' : '******'}',
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Row(
+                                              children: [
+                                                CupertinoButton(
+                                                  padding: EdgeInsets.zero,
+                                                  onPressed: () {
+                                                    setState(() {
+                                                      if (isVisible) {
+                                                        _revealedPasswords
+                                                            .remove(
+                                                              credentialId,
+                                                            );
+                                                      } else {
+                                                        _revealedPasswords.add(
+                                                          credentialId,
+                                                        );
+                                                      }
+                                                    });
+                                                  },
+                                                  child: Text(
+                                                    isVisible
+                                                        ? 'Ocultar'
+                                                        : 'Mostrar',
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 12),
+                                                CupertinoButton(
+                                                  padding: EdgeInsets.zero,
+                                                  onPressed: () =>
+                                                      _copyPassword(
+                                                        credential['password']
+                                                                ?.toString() ??
+                                                            '',
+                                                      ),
+                                                  child: const Text('Copiar'),
+                                                ),
+                                              ],
+                                            ),
+                                            if ((credential['url']
+                                                        ?.toString() ??
+                                                    '')
+                                                .isNotEmpty) ...[
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                credential['url'].toString(),
+                                              ),
+                                            ],
+                                            if ((credential['notes']
+                                                        ?.toString() ??
+                                                    '')
+                                                .isNotEmpty) ...[
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                credential['notes'].toString(),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              ),
+      ),
+    );
+  }
 }
 
 class _ClientsScreenState extends State<ClientsScreen> {
@@ -657,11 +1188,13 @@ class _ClientsScreenState extends State<ClientsScreen> {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: const Text('Clientes'),
-        trailing: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: () => _openForm(),
-          child: const Icon(CupertinoIcons.add),
-        ),
+        trailing: widget.controller.isClientUser
+            ? null
+            : CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () => _openForm(),
+                child: const Icon(CupertinoIcons.add),
+              ),
       ),
       child: SafeArea(
         child: _loading
@@ -676,11 +1209,13 @@ class _ClientsScreenState extends State<ClientsScreen> {
                   final client = _clients[index] as Map<String, dynamic>;
                   return CardSection(
                     title: client['name']?.toString() ?? 'Cliente',
-                    trailing: CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: () => _openForm(client),
-                      child: const Text('Editar'),
-                    ),
+                    trailing: widget.controller.isClientUser
+                        ? null
+                        : CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () => _openForm(client),
+                            child: const Text('Editar'),
+                          ),
                     child: Wrap(
                       runSpacing: 8,
                       children: [
@@ -696,18 +1231,19 @@ class _ClientsScreenState extends State<ClientsScreen> {
                                 child: const Text('Detalhes'),
                               ),
                             ),
-                            Expanded(
-                              child: CupertinoButton(
-                                padding: EdgeInsets.zero,
-                                onPressed: () => _delete(client),
-                                child: const Text(
-                                  'Eliminar',
-                                  style: TextStyle(
-                                    color: CupertinoColors.systemRed,
+                            if (!widget.controller.isClientUser)
+                              Expanded(
+                                child: CupertinoButton(
+                                  padding: EdgeInsets.zero,
+                                  onPressed: () => _delete(client),
+                                  child: const Text(
+                                    'Eliminar',
+                                    style: TextStyle(
+                                      color: CupertinoColors.systemRed,
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
                           ],
                         ),
                       ],
@@ -739,6 +1275,9 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
   late final TextEditingController _address;
   late final TextEditingController _notes;
   late final TextEditingController _hourlyRate;
+  late final TextEditingController _portalEmail;
+  late final TextEditingController _portalPassword;
+  bool _createPortalUser = false;
   bool _saving = false;
 
   @override
@@ -759,6 +1298,10 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
     _hourlyRate = TextEditingController(
       text: client?['hourly_rate']?.toString() ?? '',
     );
+    _portalEmail = TextEditingController(
+      text: client?['email']?.toString() ?? '',
+    );
+    _portalPassword = TextEditingController();
   }
 
   Future<void> _save() async {
@@ -772,15 +1315,32 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
       'address': _address.text,
       'notes': _notes.text,
       'hourly_rate': _hourlyRate.text,
+      'create_portal_user': widget.client == null && _createPortalUser,
+      'portal_email': _portalEmail.text,
+      'portal_password': _portalPassword.text,
     };
 
     try {
+      Map<String, dynamic> response;
       if (widget.client == null) {
-        await widget.controller.client.post('/clients', body: body);
+        response = await widget.controller.client.post('/clients', body: body);
       } else {
-        await widget.controller.client.put(
+        response = await widget.controller.client.put(
           '/clients/${widget.client!['id']}',
           body: body,
+        );
+      }
+
+      final data = (response['data'] as Map?)?.cast<String, dynamic>() ?? {};
+      final temporaryPassword = data['temporary_password']?.toString();
+      final portalUser = (data['portal_user'] as Map?)?.cast<String, dynamic>();
+
+      if (temporaryPassword != null && mounted) {
+        await showMessage(
+          context,
+          title: 'Senha temporária',
+          message:
+              'Login: ${portalUser?['email'] ?? _portalEmail.text}\nSenha: $temporaryPassword',
         );
       }
 
@@ -809,6 +1369,40 @@ class _ClientFormScreenState extends State<ClientFormScreen> {
         _field('Morada', _address),
         _field('Valor/hora', _hourlyRate),
         _field('Notas', _notes, maxLines: 4),
+        if (widget.client == null) ...[
+          Row(
+            children: [
+              const Expanded(child: Text('Criar acesso portal')),
+              CupertinoSwitch(
+                value: _createPortalUser,
+                onChanged: (value) => setState(() => _createPortalUser = value),
+              ),
+            ],
+          ),
+          if (_createPortalUser) ...[
+            const SizedBox(height: 8),
+            _field('Email de acesso', _portalEmail),
+            _field('Senha temporária', _portalPassword),
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () {
+                const chars =
+                    'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+                final random = Random.secure();
+                var password = '';
+                for (var i = 0; i < 12; i++) {
+                  password += chars[random.nextInt(chars.length)];
+                }
+                _portalPassword.text = password;
+                setState(() {});
+              },
+              child: const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Gerar senha temporária'),
+              ),
+            ),
+          ],
+        ],
       ],
     );
   }
@@ -1011,8 +1605,92 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
     }
   }
 
+  Future<void> _createPortalUser() async {
+    final email = TextEditingController(
+      text:
+          _payload?['client']?['user']?['email']?.toString() ??
+          _payload?['client']?['email']?.toString() ??
+          '',
+    );
+    final password = TextEditingController();
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Criar acesso'),
+        content: Column(
+          children: [
+            const SizedBox(height: 12),
+            CupertinoTextField(controller: email, placeholder: 'Email'),
+            const SizedBox(height: 8),
+            CupertinoTextField(
+              controller: password,
+              placeholder: 'Senha temporária',
+            ),
+          ],
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Guardar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final result = await widget.controller.client.post(
+        '/clients/${widget.clientId}/portal-user',
+        body: {'portal_email': email.text, 'portal_password': password.text},
+      );
+      final data = (result['data'] as Map).cast<String, dynamic>();
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Senha temporária',
+        message:
+            'Login: ${data['portal_user']?['email'] ?? email.text}\nSenha: ${data['temporary_password']}',
+      );
+      _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    }
+  }
+
+  Future<void> _regenerateTemporaryPassword(String deliveryMode) async {
+    try {
+      final result = await widget.controller.client.post(
+        '/clients/${widget.clientId}/temporary-password',
+        body: {'delivery_mode': deliveryMode},
+      );
+      final data = (result['data'] as Map).cast<String, dynamic>();
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: deliveryMode == 'email' ? 'Email enviado' : 'Senha temporária',
+        message:
+            'Login: ${data['portal_user']?['email'] ?? '—'}\nSenha: ${data['temporary_password']}',
+      );
+      _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final clientData =
+        (_payload?['client'] as Map?)?.cast<String, dynamic>() ?? {};
+    final portalUser =
+        (clientData['user'] as Map?)?.cast<String, dynamic>() ?? {};
+
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(_payload?['client']?['name']?.toString() ?? 'Cliente'),
@@ -1040,83 +1718,125 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                     ),
                   ),
                   CardSection(
-                    title: 'Notas internas',
-                    trailing: CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: _submitNote,
-                      child: const Text('Adicionar'),
-                    ),
-                    child: _SimpleList(
-                      items: (_payload?['notes'] as List? ?? []),
-                      titleKey: 'text',
-                      subtitleBuilder: (item) =>
-                          item['created_at']?.toString() ?? '—',
-                    ),
-                  ),
-                  CardSection(
-                    title: 'Objetos e credenciais',
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: _submitObject,
-                          child: const Text('Objeto'),
-                        ),
-                        CupertinoButton(
-                          padding: const EdgeInsets.only(left: 8),
-                          onPressed: () => _submitCredential(
-                            _payload?['client']?['credential_objects']
-                                    as List? ??
-                                [],
+                    title: 'Acesso portal',
+                    trailing: widget.controller.isClientUser
+                        ? null
+                        : CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: portalUser.isEmpty
+                                ? _createPortalUser
+                                : () => _regenerateTemporaryPassword('copy'),
+                            child: Text(
+                              portalUser.isEmpty ? 'Criar' : 'Gerar senha',
+                            ),
                           ),
-                          child: const Text('Senha'),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          portalUser['email']?.toString() ??
+                              'Sem acesso criado.',
                         ),
+                        if (portalUser.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            portalUser['must_change_password'] == true
+                                ? 'A aguardar troca de senha'
+                                : 'Ativo',
+                          ),
+                          if (!widget.controller.isClientUser) ...[
+                            const SizedBox(height: 8),
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: () =>
+                                  _regenerateTemporaryPassword('email'),
+                              child: const Text('Gerar e enviar email'),
+                            ),
+                          ],
+                        ],
                       ],
                     ),
-                    child: Column(
-                      children: [
-                        for (final object
-                            in (_payload?['client']?['credential_objects']
-                                    as List? ??
-                                []))
-                          Container(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF4F7F8),
-                              borderRadius: BorderRadius.circular(16),
+                  ),
+                  if (!widget.controller.isClientUser) ...[
+                    CardSection(
+                      title: 'Notas internas',
+                      trailing: CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        onPressed: _submitNote,
+                        child: const Text('Adicionar'),
+                      ),
+                      child: _SimpleList(
+                        items: (_payload?['notes'] as List? ?? []),
+                        titleKey: 'text',
+                        subtitleBuilder: (item) =>
+                            item['created_at']?.toString() ?? '—',
+                      ),
+                    ),
+                    CardSection(
+                      title: 'Objetos e credenciais',
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: _submitObject,
+                            child: const Text('Objeto'),
+                          ),
+                          CupertinoButton(
+                            padding: const EdgeInsets.only(left: 8),
+                            onPressed: () => _submitCredential(
+                              _payload?['client']?['credential_objects']
+                                      as List? ??
+                                  [],
                             ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  object['name']?.toString() ?? 'Objeto',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                                if ((object['notes']?.toString() ?? '')
-                                    .isNotEmpty)
-                                  Padding(
-                                    padding: const EdgeInsets.only(top: 4),
-                                    child: Text(object['notes'].toString()),
-                                  ),
-                                const SizedBox(height: 8),
-                                for (final credential
-                                    in (object['credentials'] as List? ?? []))
-                                  Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: Text(
-                                      '${credential['label']} · ${credential['username'] ?? '—'}',
+                            child: const Text('Senha'),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          for (final object
+                              in (_payload?['client']?['credential_objects']
+                                      as List? ??
+                                  []))
+                            Container(
+                              margin: const EdgeInsets.only(bottom: 12),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF4F7F8),
+                                borderRadius: BorderRadius.circular(16),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    object['name']?.toString() ?? 'Objeto',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
                                     ),
                                   ),
-                              ],
+                                  if ((object['notes']?.toString() ?? '')
+                                      .isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(object['notes'].toString()),
+                                    ),
+                                  const SizedBox(height: 8),
+                                  for (final credential
+                                      in (object['credentials'] as List? ?? []))
+                                    Padding(
+                                      padding: const EdgeInsets.only(bottom: 8),
+                                      child: Text(
+                                        '${credential['label']} · ${credential['username'] ?? '—'}',
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
       ),
@@ -1190,11 +1910,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: const Text('Projetos'),
-        trailing: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: () => _openForm(),
-          child: const Icon(CupertinoIcons.add),
-        ),
+        trailing: widget.controller.isClientUser
+            ? null
+            : CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () => _openForm(),
+                child: const Icon(CupertinoIcons.add),
+              ),
       ),
       child: SafeArea(
         child: _loading
@@ -1207,11 +1929,13 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                   final project = _projects[index] as Map<String, dynamic>;
                   return CardSection(
                     title: project['name']?.toString() ?? 'Projeto',
-                    trailing: CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: () => _openForm(project['id'] as int),
-                      child: const Text('Editar'),
-                    ),
+                    trailing: widget.controller.isClientUser
+                        ? null
+                        : CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () => _openForm(project['id'] as int),
+                            child: const Text('Editar'),
+                          ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1219,16 +1943,37 @@ class _ProjectsScreenState extends State<ProjectsScreen> {
                         const SizedBox(height: 6),
                         Text(project['status']?.toString() ?? '—'),
                         const SizedBox(height: 6),
-                        Text(money(project['quote']?['price_development'])),
-                        const SizedBox(height: 8),
-                        CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: () => _delete(project['id'] as int),
-                          child: const Text(
-                            'Eliminar',
-                            style: TextStyle(color: CupertinoColors.systemRed),
+                        Text(
+                          money(
+                            project['base_amount'] ??
+                                project['quote']?['price_development'],
                           ),
                         ),
+                        if (widget.controller.isClientUser) ...[
+                          const SizedBox(height: 6),
+                          Text(
+                            'Parcelas: ${money(project['installments_total'])}',
+                          ),
+                          if (toNumber(project['adjudication_value']) > 0)
+                            Text(
+                              'Adjudicação: ${money(project['adjudication_value'])}',
+                            ),
+                          Text(
+                            'Em aberto: ${money(project['remaining_amount'])}',
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        if (!widget.controller.isClientUser)
+                          CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () => _delete(project['id'] as int),
+                            child: const Text(
+                              'Eliminar',
+                              style: TextStyle(
+                                color: CupertinoColors.systemRed,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
                   );
@@ -1511,16 +2256,21 @@ class MoreModulesScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final modules = [
-      ('Orçamentos', QuotesScreen(controller: controller)),
-      ('Produtos / Packs', ProductsScreen(controller: controller)),
-      ('Faturas', InvoicesScreen(controller: controller)),
-      ('Financeiro', FinanceScreen(controller: controller)),
-      ('Intervenções', InterventionsScreen(controller: controller)),
-      ('Carteiras', WalletsScreen(controller: controller)),
-      ('Empresa', CompanyScreen(controller: controller)),
-      ('Definições', SettingsScreen(controller: controller)),
-    ];
+    final modules = controller.isClientUser
+        ? [
+            ('Carteira', ClientWalletScreen(controller: controller)),
+            ('Documentos', InvoicesScreen(controller: controller)),
+          ]
+        : [
+            ('Orçamentos', QuotesScreen(controller: controller)),
+            ('Produtos / Packs', ProductsScreen(controller: controller)),
+            ('Documentos', InvoicesScreen(controller: controller)),
+            ('Financeiro', FinanceScreen(controller: controller)),
+            ('Intervenções', InterventionsScreen(controller: controller)),
+            ('Carteiras', WalletsScreen(controller: controller)),
+            ('Empresa', CompanyScreen(controller: controller)),
+            ('Definições', SettingsScreen(controller: controller)),
+          ];
 
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
@@ -1900,7 +2650,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
-        middle: const Text('Faturas'),
+        middle: const Text('Documentos'),
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
           onPressed: _load,
@@ -1913,7 +2663,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
             : _error != null
             ? ErrorState(message: _error!, onRetry: _load)
             : _invoices.isEmpty
-            ? const EmptyState('Sem faturas disponíveis.')
+            ? const EmptyState('Sem documentos disponíveis.')
             : ListView.builder(
                 physics: const BouncingScrollPhysics(
                   parent: AlwaysScrollableScrollPhysics(),
@@ -1924,7 +2674,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                       .cast<String, dynamic>();
                   final status = invoice['status']?.toString() ?? '—';
                   return CardSection(
-                    title: invoice['number']?.toString() ?? 'Fatura',
+                    title: invoice['number']?.toString() ?? 'Documento',
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -2100,30 +2850,1528 @@ class _FinanceScreenState extends State<FinanceScreen> {
   }
 }
 
-class InterventionsScreen extends _JsonModuleScreen {
-  InterventionsScreen({required super.controller})
-    : super(
-        title: 'Intervenções',
-        endpoint: '/interventions',
-        rootListKey: 'interventions',
-        itemBuilder: (item) =>
-            '${item['client']?['name'] ?? '—'} · ${item['type']}',
-        subtitleBuilder: (item) =>
-            'Início: ${formatDate(item['started_at'])} · Fim: ${formatDate(item['ended_at'])}',
-      );
+class InterventionsScreen extends StatefulWidget {
+  const InterventionsScreen({super.key, required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<InterventionsScreen> createState() => _InterventionsScreenState();
 }
 
-class WalletsScreen extends _JsonModuleScreen {
-  WalletsScreen({required super.controller})
-    : super(
-        title: 'Carteiras',
-        endpoint: '/wallets',
-        rootListKey: 'transactions',
-        itemBuilder: (item) =>
-            '${item['description'] ?? 'Transação'} · ${money(item['amount'])}',
-        subtitleBuilder: (item) =>
-            '${item['type'] ?? '—'} · ${formatDate(item['transaction_at'])}',
+class _InterventionsScreenState extends State<InterventionsScreen> {
+  bool _loading = true;
+  String? _error;
+  List<dynamic> _clients = [];
+  List<dynamic> _interventions = [];
+  List<dynamic> _transactions = [];
+  List<dynamic> _packs = [];
+  List<dynamic> _types = [];
+  Map<String, dynamic>? _wallet;
+  String _activeTab = 'pack';
+  String? _selectedClientId;
+  String _type = 'Manutenção';
+  final TextEditingController _notesController = TextEditingController();
+  final TextEditingController _hourlyRateController = TextEditingController();
+  String? _packProductId;
+  String? _packItemId;
+  final TextEditingController _packQuantityController = TextEditingController(
+    text: '1',
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _notesController.dispose();
+    _hourlyRateController.dispose();
+    _packQuantityController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final path = _selectedClientId == null
+          ? '/interventions?tab=$_activeTab'
+          : '/interventions?tab=$_activeTab&client_id=$_selectedClientId';
+      final result = await widget.controller.client.get(path);
+      final data = (result['data'] as Map).cast<String, dynamic>();
+      final clients = data['clients'] as List<dynamic>? ?? [];
+      final packs = data['packs'] as List<dynamic>? ?? [];
+      final types = data['types'] as List<dynamic>? ?? [];
+      final selectedClientId = data['selected_client_id']?.toString();
+      final selectedTab = data['selected_tab']?.toString();
+      final filteredDefaultTab =
+          selectedTab == 'no-pack' || selectedTab == 'pack'
+          ? selectedTab!
+          : _activeTab;
+
+      setState(() {
+        _clients = clients;
+        _interventions = data['interventions'] as List<dynamic>? ?? [];
+        _transactions = data['transactions'] as List<dynamic>? ?? [];
+        _packs = packs;
+        _types = types;
+        _wallet = (data['wallet'] as Map?)?.cast<String, dynamic>();
+        _activeTab = filteredDefaultTab;
+        _selectedClientId = selectedClientId;
+        if (_type.isEmpty && types.isNotEmpty) {
+          _type = types.first.toString();
+        }
+        if (!_types.map((item) => item.toString()).contains(_type) &&
+            types.isNotEmpty) {
+          _type = types.first.toString();
+        }
+        if (_packProductId == null && packs.isNotEmpty) {
+          _packProductId = (packs.first as Map)['id'].toString();
+        }
+        _syncPackItemSelection();
+        _syncHourlyRateFromClient();
+      });
+    } on ApiException catch (error) {
+      setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredClients {
+    return _clients
+        .map((item) => (item as Map).cast<String, dynamic>())
+        .where(
+          (client) => _activeTab == 'pack'
+              ? client['has_active_pack'] == true
+              : client['has_active_pack'] != true,
+        )
+        .toList();
+  }
+
+  Map<String, dynamic>? get _selectedClient {
+    for (final client in _clients) {
+      final map = (client as Map).cast<String, dynamic>();
+      if (map['id']?.toString() == _selectedClientId) {
+        return map;
+      }
+    }
+    return null;
+  }
+
+  List<Map<String, dynamic>> get _packProducts =>
+      _packs.map((item) => (item as Map).cast<String, dynamic>()).toList();
+
+  List<Map<String, dynamic>> get _selectedPackItems {
+    final product = _packProducts.firstWhere(
+      (item) => item['id']?.toString() == _packProductId,
+      orElse: () => <String, dynamic>{},
+    );
+    return ((product['pack_items'] as List?) ?? [])
+        .map((item) => (item as Map).cast<String, dynamic>())
+        .toList();
+  }
+
+  void _syncHourlyRateFromClient() {
+    if (_activeTab == 'pack') {
+      _hourlyRateController.text = '';
+      return;
+    }
+
+    final rate = _selectedClient?['hourly_rate'];
+    _hourlyRateController.text = rate == null ? '' : rate.toString();
+  }
+
+  void _syncPackItemSelection() {
+    final items = _selectedPackItems;
+    if (items.isEmpty) {
+      _packItemId = null;
+      return;
+    }
+    final exists = items.any((item) => item['id']?.toString() == _packItemId);
+    if (!exists) {
+      _packItemId = items.first['id']?.toString();
+    }
+  }
+
+  Future<void> _selectClient() async {
+    final clients = _filteredClients;
+    if (clients.isEmpty) {
+      await showMessage(
+        context,
+        title: 'Sem clientes',
+        message: 'Não há clientes disponíveis neste modo.',
       );
+      return;
+    }
+
+    var selected = _selectedClientId ?? clients.first['id'].toString();
+    final confirmed = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('Selecionar cliente'),
+        actions: [
+          SizedBox(
+            height: 220,
+            child: CupertinoPicker(
+              itemExtent: 36,
+              scrollController: FixedExtentScrollController(
+                initialItem: clients
+                    .indexWhere(
+                      (client) => client['id']?.toString() == selected,
+                    )
+                    .clamp(0, clients.length - 1),
+              ),
+              onSelectedItemChanged: (index) {
+                selected = clients[index]['id'].toString();
+              },
+              children: [
+                for (final client in clients)
+                  Center(child: Text(client['name']?.toString() ?? 'Cliente')),
+              ],
+            ),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        message: CupertinoButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Selecionar'),
+        ),
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() => _selectedClientId = selected);
+      _syncHourlyRateFromClient();
+      await _load();
+    }
+  }
+
+  Future<void> _selectType() async {
+    if (_types.isEmpty) return;
+
+    var selected = _type;
+    final confirmed = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('Tipo de intervenção'),
+        actions: [
+          SizedBox(
+            height: 220,
+            child: CupertinoPicker(
+              itemExtent: 36,
+              scrollController: FixedExtentScrollController(
+                initialItem: _types
+                    .map((item) => item.toString())
+                    .toList()
+                    .indexOf(selected)
+                    .clamp(0, _types.length - 1),
+              ),
+              onSelectedItemChanged: (index) {
+                selected = _types[index].toString();
+              },
+              children: [
+                for (final type in _types) Center(child: Text(type.toString())),
+              ],
+            ),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        message: CupertinoButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Selecionar'),
+        ),
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() => _type = selected);
+    }
+  }
+
+  Future<void> _startIntervention() async {
+    if (_selectedClientId == null || _selectedClientId!.isEmpty) {
+      await showMessage(
+        context,
+        title: 'Cliente em falta',
+        message: 'Seleciona um cliente antes de iniciar a intervenção.',
+      );
+      return;
+    }
+
+    try {
+      await widget.controller.client.post(
+        '/interventions',
+        body: {
+          'client_id': int.parse(_selectedClientId!),
+          'type': _type,
+          'notes': _notesController.text.trim(),
+          'is_pack': _activeTab == 'pack',
+          'hourly_rate': _activeTab == 'pack'
+              ? null
+              : _hourlyRateController.text.trim(),
+        },
+      );
+      _notesController.clear();
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    }
+  }
+
+  Future<void> _pauseIntervention(int id) async {
+    try {
+      await widget.controller.client.post('/interventions/$id/pause');
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    }
+  }
+
+  Future<void> _resumeIntervention(int id) async {
+    try {
+      await widget.controller.client.post('/interventions/$id/resume');
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    }
+  }
+
+  Future<void> _finishIntervention(Map<String, dynamic> item) async {
+    final notes = TextEditingController();
+    final endedAt = TextEditingController();
+    final durationMinutes = TextEditingController();
+
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Concluir intervenção'),
+        content: Column(
+          children: [
+            const SizedBox(height: 12),
+            CupertinoTextField(
+              controller: notes,
+              placeholder: 'Notas finais',
+              maxLines: 2,
+            ),
+            const SizedBox(height: 8),
+            CupertinoTextField(
+              controller: endedAt,
+              placeholder: 'Hora fim YYYY-MM-DD HH:MM',
+            ),
+            const SizedBox(height: 8),
+            CupertinoTextField(
+              controller: durationMinutes,
+              placeholder: 'Duração em minutos',
+              keyboardType: TextInputType.number,
+            ),
+          ],
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Concluir'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await widget.controller.client.post(
+        '/interventions/${item['id']}/finish',
+        body: {
+          'finish_notes': notes.text.trim().isEmpty ? null : notes.text.trim(),
+          'ended_at': endedAt.text.trim().isEmpty ? null : endedAt.text.trim(),
+          'duration_minutes': durationMinutes.text.trim().isEmpty
+              ? null
+              : int.tryParse(durationMinutes.text.trim()),
+        },
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    }
+  }
+
+  Future<void> _buyPack() async {
+    if (_selectedClientId == null ||
+        _selectedClientId!.isEmpty ||
+        _packProductId == null ||
+        _packItemId == null) {
+      return;
+    }
+
+    try {
+      await widget.controller.client.post(
+        '/wallets/packs',
+        body: {
+          'client_id': int.parse(_selectedClientId!),
+          'product_id': int.parse(_packProductId!),
+          'pack_item_id': int.parse(_packItemId!),
+          'quantity': int.tryParse(_packQuantityController.text.trim()) ?? 1,
+        },
+      );
+      _packQuantityController.text = '1';
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    }
+  }
+
+  String _statusLabel(String status) {
+    switch (status) {
+      case 'running':
+        return 'Em curso';
+      case 'paused':
+        return 'Em pausa';
+      default:
+        return 'Concluída';
+    }
+  }
+
+  String _transactionMeta(Map<String, dynamic> item) {
+    final parts = <String>[
+      signedHours(item['seconds']),
+      moneyOrDash(item['amount']),
+      formatDate(item['transaction_at']),
+    ];
+
+    final invoice = (item['invoice'] as Map?)?.cast<String, dynamic>();
+    if (invoice != null && (invoice['number']?.toString() ?? '').isNotEmpty) {
+      parts.add(invoice['number'].toString());
+    }
+
+    return parts.join(' · ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: const Text('Intervenções'),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: _load,
+          child: const Icon(CupertinoIcons.refresh),
+        ),
+      ),
+      child: SafeArea(
+        child: _loading
+            ? const Center(child: CupertinoActivityIndicator(radius: 16))
+            : _error != null
+            ? ErrorState(message: _error!, onRetry: _load)
+            : ListView(
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                children: [
+                  CardSection(
+                    title: 'Modo',
+                    child: CupertinoSlidingSegmentedControl<String>(
+                      groupValue: _activeTab,
+                      children: const {
+                        'pack': Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          child: Text('Com pack'),
+                        ),
+                        'no-pack': Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 8),
+                          child: Text('Sem pack'),
+                        ),
+                      },
+                      onValueChanged: (value) async {
+                        if (value == null) return;
+                        setState(() {
+                          _activeTab = value;
+                          _selectedClientId = null;
+                        });
+                        _syncHourlyRateFromClient();
+                        await _load();
+                      },
+                    ),
+                  ),
+                  CardSection(
+                    title: 'Nova intervenção',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: _selectClient,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _selectedClient == null
+                                  ? 'Selecionar cliente'
+                                  : 'Cliente: ${_selectedClient?['name'] ?? '—'}'
+                                        '${(_selectedClient?['company']?.toString() ?? '').isNotEmpty ? ' · ${_selectedClient?['company']}' : ''}',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: _selectType,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text('Tipo: $_type'),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _field('Notas', _notesController, maxLines: 3),
+                        if (_activeTab == 'no-pack')
+                          _field('Valor/hora', _hourlyRateController),
+                        CupertinoButton.filled(
+                          onPressed: _startIntervention,
+                          child: const Text('Iniciar intervenção'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_selectedClientId != null)
+                    CardSection(
+                      title: 'Carteira do cliente',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Horas: ${signedHours(_wallet?['balance_seconds'])}',
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Valor: ${moneyOrDash(_wallet?['balance_amount'])}',
+                          ),
+                          const SizedBox(height: 10),
+                          if (_activeTab == 'pack') ...[
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: _packProducts.isEmpty
+                                  ? null
+                                  : () async {
+                                      final options = _packProducts;
+                                      String selected =
+                                          _packProductId ??
+                                          options.first['id'].toString();
+                                      final confirmed = await showCupertinoDialog<bool>(
+                                        context: context,
+                                        builder: (context) => CupertinoAlertDialog(
+                                          title: const Text('Selecionar pack'),
+                                          content: SizedBox(
+                                            height: 180,
+                                            child: CupertinoPicker(
+                                              itemExtent: 36,
+                                              scrollController:
+                                                  FixedExtentScrollController(
+                                                    initialItem: options
+                                                        .indexWhere(
+                                                          (item) =>
+                                                              item['id']
+                                                                  ?.toString() ==
+                                                              selected,
+                                                        )
+                                                        .clamp(
+                                                          0,
+                                                          options.length - 1,
+                                                        ),
+                                                  ),
+                                              onSelectedItemChanged: (index) {
+                                                selected = options[index]['id']
+                                                    .toString();
+                                              },
+                                              children: [
+                                                for (final option in options)
+                                                  Center(
+                                                    child: Text(
+                                                      option['name']
+                                                              ?.toString() ??
+                                                          'Pack',
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                          actions: [
+                                            CupertinoDialogAction(
+                                              onPressed: () => Navigator.of(
+                                                context,
+                                              ).pop(false),
+                                              child: const Text('Cancelar'),
+                                            ),
+                                            CupertinoDialogAction(
+                                              onPressed: () => Navigator.of(
+                                                context,
+                                              ).pop(true),
+                                              child: const Text('Selecionar'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      if (confirmed == true) {
+                                        setState(() {
+                                          _packProductId = selected;
+                                          _syncPackItemSelection();
+                                        });
+                                      }
+                                    },
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  _packProducts
+                                          .firstWhere(
+                                            (item) =>
+                                                item['id']?.toString() ==
+                                                _packProductId,
+                                            orElse: () =>
+                                                const <String, dynamic>{},
+                                          )['name']
+                                          ?.toString() ??
+                                      'Selecionar pack',
+                                ),
+                              ),
+                            ),
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: _selectedPackItems.isEmpty
+                                  ? null
+                                  : () async {
+                                      final options = _selectedPackItems;
+                                      String selected =
+                                          _packItemId ??
+                                          options.first['id'].toString();
+                                      final confirmed = await showCupertinoDialog<bool>(
+                                        context: context,
+                                        builder: (context) => CupertinoAlertDialog(
+                                          title: const Text('Selecionar opção'),
+                                          content: SizedBox(
+                                            height: 180,
+                                            child: CupertinoPicker(
+                                              itemExtent: 36,
+                                              scrollController:
+                                                  FixedExtentScrollController(
+                                                    initialItem: options
+                                                        .indexWhere(
+                                                          (item) =>
+                                                              item['id']
+                                                                  ?.toString() ==
+                                                              selected,
+                                                        )
+                                                        .clamp(
+                                                          0,
+                                                          options.length - 1,
+                                                        ),
+                                                  ),
+                                              onSelectedItemChanged: (index) {
+                                                selected = options[index]['id']
+                                                    .toString();
+                                              },
+                                              children: [
+                                                for (final option in options)
+                                                  Center(
+                                                    child: Text(
+                                                      '${option['hours']}h · ${money(option['pack_price'])}',
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                          actions: [
+                                            CupertinoDialogAction(
+                                              onPressed: () => Navigator.of(
+                                                context,
+                                              ).pop(false),
+                                              child: const Text('Cancelar'),
+                                            ),
+                                            CupertinoDialogAction(
+                                              onPressed: () => Navigator.of(
+                                                context,
+                                              ).pop(true),
+                                              child: const Text('Selecionar'),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                      if (confirmed == true) {
+                                        setState(() => _packItemId = selected);
+                                      }
+                                    },
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  _selectedPackItems
+                                              .firstWhere(
+                                                (item) =>
+                                                    item['id']?.toString() ==
+                                                    _packItemId,
+                                                orElse: () =>
+                                                    const <String, dynamic>{},
+                                              )['hours']
+                                              ?.toString() !=
+                                          null
+                                      ? '${_selectedPackItems.firstWhere((item) => item['id']?.toString() == _packItemId, orElse: () => const <String, dynamic>{})['hours']}h'
+                                      : 'Selecionar opção',
+                                ),
+                              ),
+                            ),
+                            _field('Quantidade', _packQuantityController),
+                            if (_selectedPackItems.isNotEmpty &&
+                                _packItemId != null) ...[
+                              const SizedBox(height: 8),
+                              Builder(
+                                builder: (context) {
+                                  final selected = _selectedPackItems
+                                      .firstWhere(
+                                        (item) =>
+                                            item['id']?.toString() ==
+                                            _packItemId,
+                                        orElse: () => const <String, dynamic>{},
+                                      );
+
+                                  if (selected.isEmpty) {
+                                    return const SizedBox.shrink();
+                                  }
+
+                                  return Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF4F7F8),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      '${selected['hours']}h · ${moneyOrDash(selected['pack_price'])} · ${selected['validity_months']} meses',
+                                    ),
+                                  );
+                                },
+                              ),
+                            ],
+                            CupertinoButton.filled(
+                              onPressed: _buyPack,
+                              child: const Text('Registar compra de pack'),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  if (_selectedClientId != null)
+                    CardSection(
+                      title: 'Transações da carteira',
+                      child: _transactions.isEmpty
+                          ? const Text('Sem transações registadas.')
+                          : Column(
+                              children: [
+                                for (final raw in _transactions)
+                                  Builder(
+                                    builder: (context) {
+                                      final item = (raw as Map)
+                                          .cast<String, dynamic>();
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 10,
+                                        ),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            '${walletTransactionTypeLabel(item['type']?.toString() ?? '')} · ${item['description'] ?? 'Transação'}\n${_transactionMeta(item)}',
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                              ],
+                            ),
+                    ),
+                  CardSection(
+                    title: 'Registos recentes',
+                    child: _interventions.isEmpty
+                        ? const Text('Sem intervenções para mostrar.')
+                        : Column(
+                            children: [
+                              for (final raw in _interventions)
+                                Builder(
+                                  builder: (context) {
+                                    final item = (raw as Map)
+                                        .cast<String, dynamic>();
+                                    final status =
+                                        item['status']?.toString() ?? '';
+                                    return Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 12,
+                                      ),
+                                      child: Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF4F7F8),
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              '${item['client']?['name'] ?? '—'} · ${item['type'] ?? 'Intervenção'}',
+                                              style: const TextStyle(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              '${_statusLabel(status)} · Início: ${formatDate(item['started_at'])}',
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Text(
+                                              'Fim: ${formatDate(item['ended_at'])} · Tempo: ${_formatClock(item)}',
+                                            ),
+                                            if ((item['notes']?.toString() ??
+                                                    '')
+                                                .isNotEmpty)
+                                              Padding(
+                                                padding: const EdgeInsets.only(
+                                                  top: 4,
+                                                ),
+                                                child: Text(
+                                                  'Notas: ${item['notes']}',
+                                                ),
+                                              ),
+                                            const SizedBox(height: 8),
+                                            Wrap(
+                                              spacing: 10,
+                                              children: [
+                                                if (status == 'running')
+                                                  CupertinoButton(
+                                                    padding: EdgeInsets.zero,
+                                                    onPressed: () =>
+                                                        _pauseIntervention(
+                                                          item['id'] as int,
+                                                        ),
+                                                    child: const Text('Pausar'),
+                                                  ),
+                                                if (status == 'paused')
+                                                  CupertinoButton(
+                                                    padding: EdgeInsets.zero,
+                                                    onPressed: () =>
+                                                        _resumeIntervention(
+                                                          item['id'] as int,
+                                                        ),
+                                                    child: const Text(
+                                                      'Retomar',
+                                                    ),
+                                                  ),
+                                                if (status != 'completed')
+                                                  CupertinoButton(
+                                                    padding: EdgeInsets.zero,
+                                                    onPressed: () =>
+                                                        _finishIntervention(
+                                                          item,
+                                                        ),
+                                                    child: const Text(
+                                                      'Concluir',
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+
+  String _formatClock(Map<String, dynamic> item) {
+    final totalSeconds = toNumber(item['total_seconds']).toInt();
+    final status = item['status']?.toString() ?? '';
+    if (status == 'completed') {
+      return _clockFromSeconds(totalSeconds);
+    }
+
+    final startedAt = DateTime.tryParse(item['started_at']?.toString() ?? '');
+    if (startedAt == null) return '00:00:00';
+    final pausedAt = DateTime.tryParse(item['paused_at']?.toString() ?? '');
+    final pausedSeconds = toNumber(item['total_paused_seconds']).toInt();
+    final end = status == 'paused' && pausedAt != null
+        ? pausedAt
+        : DateTime.now();
+    final seconds = end.difference(startedAt).inSeconds - pausedSeconds;
+    return _clockFromSeconds(seconds < 0 ? 0 : seconds);
+  }
+
+  String _clockFromSeconds(int seconds) {
+    final hrs = seconds ~/ 3600;
+    final mins = (seconds % 3600) ~/ 60;
+    final secs = seconds % 60;
+    return '${hrs.toString().padLeft(2, '0')}:${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
+}
+
+class WalletsScreen extends StatefulWidget {
+  const WalletsScreen({super.key, required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<WalletsScreen> createState() => _WalletsScreenState();
+}
+
+class _WalletsScreenState extends State<WalletsScreen> {
+  bool _loading = true;
+  String? _error;
+  List<dynamic> _clients = [];
+  Map<String, dynamic>? _selectedClient;
+  Map<String, dynamic>? _wallet;
+  List<dynamic> _transactions = [];
+  List<dynamic> _packs = [];
+  String? _selectedClientId;
+  String? _packProductId;
+  String? _packItemId;
+  final TextEditingController _packQuantityController = TextEditingController(
+    text: '1',
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _packQuantityController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final path = _selectedClientId == null
+          ? '/wallets'
+          : '/wallets?client_id=$_selectedClientId';
+      final result = await widget.controller.client.get(path);
+      final data = (result['data'] as Map).cast<String, dynamic>();
+      final clients = data['clients'] as List<dynamic>? ?? [];
+      final packs = data['packs'] as List<dynamic>? ?? [];
+      final selectedClientId = data['selected_client_id']?.toString();
+
+      setState(() {
+        _clients = clients;
+        _selectedClient = (data['selected_client'] as Map?)
+            ?.cast<String, dynamic>();
+        _wallet = (data['wallet'] as Map?)?.cast<String, dynamic>();
+        _transactions = data['transactions'] as List<dynamic>? ?? [];
+        _packs = packs;
+        _selectedClientId = selectedClientId;
+        if (_packProductId == null && packs.isNotEmpty) {
+          _packProductId = (packs.first as Map)['id'].toString();
+        }
+        _syncPackItemSelection();
+      });
+    } on ApiException catch (error) {
+      setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  List<Map<String, dynamic>> get _clientList =>
+      _clients.map((item) => (item as Map).cast<String, dynamic>()).toList();
+
+  List<Map<String, dynamic>> get _packProducts =>
+      _packs.map((item) => (item as Map).cast<String, dynamic>()).toList();
+
+  List<Map<String, dynamic>> get _selectedPackItems {
+    final product = _packProducts.firstWhere(
+      (item) => item['id']?.toString() == _packProductId,
+      orElse: () => <String, dynamic>{},
+    );
+    return ((product['pack_items'] as List?) ?? [])
+        .map((item) => (item as Map).cast<String, dynamic>())
+        .toList();
+  }
+
+  void _syncPackItemSelection() {
+    final items = _selectedPackItems;
+    if (items.isEmpty) {
+      _packItemId = null;
+      return;
+    }
+    final exists = items.any((item) => item['id']?.toString() == _packItemId);
+    if (!exists) {
+      _packItemId = items.first['id']?.toString();
+    }
+  }
+
+  Future<void> _selectClient() async {
+    if (_clientList.isEmpty) return;
+    var selected =
+        _selectedClientId ?? _clientList.first['id']?.toString() ?? '';
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Selecionar cliente'),
+        content: SizedBox(
+          height: 180,
+          child: CupertinoPicker(
+            itemExtent: 36,
+            scrollController: FixedExtentScrollController(
+              initialItem: _clientList
+                  .indexWhere((item) => item['id']?.toString() == selected)
+                  .clamp(0, _clientList.length - 1),
+            ),
+            onSelectedItemChanged: (index) {
+              selected = _clientList[index]['id'].toString();
+            },
+            children: [
+              for (final client in _clientList)
+                Center(child: Text(client['name']?.toString() ?? 'Cliente')),
+            ],
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Selecionar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      setState(() => _selectedClientId = selected);
+      await _load();
+    }
+  }
+
+  Future<void> _buyPack() async {
+    if (_selectedClientId == null ||
+        _packProductId == null ||
+        _packItemId == null) {
+      return;
+    }
+
+    try {
+      await widget.controller.client.post(
+        '/wallets/packs',
+        body: {
+          'client_id': int.parse(_selectedClientId!),
+          'product_id': int.parse(_packProductId!),
+          'pack_item_id': int.parse(_packItemId!),
+          'quantity': int.tryParse(_packQuantityController.text.trim()) ?? 1,
+        },
+      );
+      _packQuantityController.text = '1';
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    }
+  }
+
+  String _transactionMeta(Map<String, dynamic> item) {
+    final parts = <String>[
+      signedHours(item['seconds']),
+      moneyOrDash(item['amount']),
+      formatDate(item['transaction_at']),
+    ];
+
+    final invoice = (item['invoice'] as Map?)?.cast<String, dynamic>();
+    if (invoice != null && (invoice['number']?.toString() ?? '').isNotEmpty) {
+      parts.add(invoice['number'].toString());
+    }
+
+    return parts.join(' · ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: const Text('Carteiras'),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: _load,
+          child: const Icon(CupertinoIcons.refresh),
+        ),
+      ),
+      child: SafeArea(
+        child: _loading
+            ? const Center(child: CupertinoActivityIndicator(radius: 16))
+            : _error != null
+            ? ErrorState(message: _error!, onRetry: _load)
+            : ListView(
+                children: [
+                  CardSection(
+                    title: 'Cliente',
+                    child: CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _selectClient,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          _selectedClient?['name']?.toString() ??
+                              'Selecionar cliente',
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (_wallet != null)
+                    CardSection(
+                      title: 'Saldo',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _selectedClient?['company']?.toString() ??
+                                'Carteira selecionada',
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Horas: ${signedHours(_wallet?['balance_seconds'])}',
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Valor: ${moneyOrDash(_wallet?['balance_amount'])}',
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (_wallet != null)
+                    CardSection(
+                      title: 'Compra de pack',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: _packProducts.isEmpty
+                                ? null
+                                : () async {
+                                    var selected =
+                                        _packProductId ??
+                                        _packProducts.first['id'].toString();
+                                    final confirmed = await showCupertinoDialog<bool>(
+                                      context: context,
+                                      builder: (context) => CupertinoAlertDialog(
+                                        title: const Text('Selecionar pack'),
+                                        content: SizedBox(
+                                          height: 180,
+                                          child: CupertinoPicker(
+                                            itemExtent: 36,
+                                            scrollController:
+                                                FixedExtentScrollController(
+                                                  initialItem: _packProducts
+                                                      .indexWhere(
+                                                        (item) =>
+                                                            item['id']
+                                                                ?.toString() ==
+                                                            selected,
+                                                      )
+                                                      .clamp(
+                                                        0,
+                                                        _packProducts.length -
+                                                            1,
+                                                      ),
+                                                ),
+                                            onSelectedItemChanged: (index) {
+                                              selected =
+                                                  _packProducts[index]['id']
+                                                      .toString();
+                                            },
+                                            children: [
+                                              for (final option
+                                                  in _packProducts)
+                                                Center(
+                                                  child: Text(
+                                                    option['name']
+                                                            ?.toString() ??
+                                                        'Pack',
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                        actions: [
+                                          CupertinoDialogAction(
+                                            onPressed: () => Navigator.of(
+                                              context,
+                                            ).pop(false),
+                                            child: const Text('Cancelar'),
+                                          ),
+                                          CupertinoDialogAction(
+                                            onPressed: () =>
+                                                Navigator.of(context).pop(true),
+                                            child: const Text('Selecionar'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirmed == true) {
+                                      setState(() {
+                                        _packProductId = selected;
+                                        _syncPackItemSelection();
+                                      });
+                                    }
+                                  },
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                _packProducts
+                                        .firstWhere(
+                                          (item) =>
+                                              item['id']?.toString() ==
+                                              _packProductId,
+                                          orElse: () =>
+                                              const <String, dynamic>{},
+                                        )['name']
+                                        ?.toString() ??
+                                    'Selecionar pack',
+                              ),
+                            ),
+                          ),
+                          CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: _selectedPackItems.isEmpty
+                                ? null
+                                : () async {
+                                    var selected =
+                                        _packItemId ??
+                                        _selectedPackItems.first['id']
+                                            .toString();
+                                    final confirmed = await showCupertinoDialog<bool>(
+                                      context: context,
+                                      builder: (context) => CupertinoAlertDialog(
+                                        title: const Text('Selecionar opção'),
+                                        content: SizedBox(
+                                          height: 180,
+                                          child: CupertinoPicker(
+                                            itemExtent: 36,
+                                            scrollController:
+                                                FixedExtentScrollController(
+                                                  initialItem: _selectedPackItems
+                                                      .indexWhere(
+                                                        (item) =>
+                                                            item['id']
+                                                                ?.toString() ==
+                                                            selected,
+                                                      )
+                                                      .clamp(
+                                                        0,
+                                                        _selectedPackItems
+                                                                .length -
+                                                            1,
+                                                      ),
+                                                ),
+                                            onSelectedItemChanged: (index) {
+                                              selected =
+                                                  _selectedPackItems[index]['id']
+                                                      .toString();
+                                            },
+                                            children: [
+                                              for (final option
+                                                  in _selectedPackItems)
+                                                Center(
+                                                  child: Text(
+                                                    '${option['hours']}h · ${money(option['pack_price'])}',
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                        actions: [
+                                          CupertinoDialogAction(
+                                            onPressed: () => Navigator.of(
+                                              context,
+                                            ).pop(false),
+                                            child: const Text('Cancelar'),
+                                          ),
+                                          CupertinoDialogAction(
+                                            onPressed: () =>
+                                                Navigator.of(context).pop(true),
+                                            child: const Text('Selecionar'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirmed == true) {
+                                      setState(() => _packItemId = selected);
+                                    }
+                                  },
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                _selectedPackItems
+                                            .firstWhere(
+                                              (item) =>
+                                                  item['id']?.toString() ==
+                                                  _packItemId,
+                                              orElse: () =>
+                                                  const <String, dynamic>{},
+                                            )['hours']
+                                            ?.toString() !=
+                                        null
+                                    ? '${_selectedPackItems.firstWhere((item) => item['id']?.toString() == _packItemId, orElse: () => const <String, dynamic>{})['hours']}h'
+                                    : 'Selecionar opção',
+                              ),
+                            ),
+                          ),
+                          _field('Quantidade', _packQuantityController),
+                          if (_selectedPackItems.isNotEmpty &&
+                              _packItemId != null) ...[
+                            const SizedBox(height: 8),
+                            Builder(
+                              builder: (context) {
+                                final selected = _selectedPackItems.firstWhere(
+                                  (item) =>
+                                      item['id']?.toString() == _packItemId,
+                                  orElse: () => const <String, dynamic>{},
+                                );
+
+                                if (selected.isEmpty) {
+                                  return const SizedBox.shrink();
+                                }
+
+                                return Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(10),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF4F7F8),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '${selected['hours']}h · ${moneyOrDash(selected['pack_price'])} · ${selected['validity_months']} meses',
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+                          CupertinoButton.filled(
+                            onPressed: _buyPack,
+                            child: const Text('Registar compra'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  CardSection(
+                    title: 'Transações',
+                    child: _transactions.isEmpty
+                        ? const Text('Sem transações registadas.')
+                        : Column(
+                            children: [
+                              for (final raw in _transactions)
+                                Builder(
+                                  builder: (context) {
+                                    final item = (raw as Map)
+                                        .cast<String, dynamic>();
+                                    return Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 10,
+                                      ),
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          '${walletTransactionTypeLabel(item['type']?.toString() ?? '')} · ${item['description'] ?? 'Transação'}\n${_transactionMeta(item)}',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
+}
+
+class ClientWalletScreen extends StatefulWidget {
+  const ClientWalletScreen({super.key, required this.controller});
+
+  final AppController controller;
+
+  @override
+  State<ClientWalletScreen> createState() => _ClientWalletScreenState();
+}
+
+class _ClientWalletScreenState extends State<ClientWalletScreen> {
+  bool _loading = true;
+  String? _error;
+  Map<String, dynamic>? _wallet;
+  List<dynamic> _transactions = [];
+  List<dynamic> _interventions = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final result = await widget.controller.client.get('/wallet');
+      final data = (result['data'] as Map).cast<String, dynamic>();
+      setState(() {
+        _wallet = (data['wallet'] as Map?)?.cast<String, dynamic>();
+        _transactions = data['transactions'] as List<dynamic>? ?? [];
+        _interventions = data['interventions'] as List<dynamic>? ?? [];
+      });
+    } on ApiException catch (error) {
+      setState(() => _error = error.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  String _formatHours(dynamic secondsValue) {
+    final seconds = secondsValue is num
+        ? secondsValue.toInt()
+        : int.tryParse(secondsValue?.toString() ?? '0') ?? 0;
+    final sign = seconds < 0 ? '-' : '';
+    final abs = seconds.abs();
+    final hrs = abs ~/ 3600;
+    final mins = (abs % 3600) ~/ 60;
+    final secs = abs % 60;
+    final base = '$sign${hrs}h ${mins.toString().padLeft(2, '0')}m';
+    return secs > 0 ? '$base ${secs.toString().padLeft(2, '0')}s' : base;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: const Text('Carteira'),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: _load,
+          child: const Icon(CupertinoIcons.refresh),
+        ),
+      ),
+      child: SafeArea(
+        child: _loading
+            ? const Center(child: CupertinoActivityIndicator(radius: 16))
+            : _error != null
+            ? ErrorState(message: _error!, onRetry: _load)
+            : ListView(
+                children: [
+                  CardSection(
+                    title: 'Saldo',
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _wallet?['client']?['name']?.toString() ?? 'Cliente',
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          'Tempo em carteira: ${_formatHours(_wallet?['balance_seconds'])}',
+                        ),
+                      ],
+                    ),
+                  ),
+                  CardSection(
+                    title: 'Intervenções',
+                    child: _interventions.isEmpty
+                        ? const Text('Sem intervenções registadas.')
+                        : Column(
+                            children: [
+                              for (final raw in _interventions)
+                                Builder(
+                                  builder: (context) {
+                                    final item = (raw as Map)
+                                        .cast<String, dynamic>();
+                                    return Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 10,
+                                      ),
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          '${item['type'] ?? 'Intervenção'} · ${item['status'] ?? '—'}\n${_formatHours(item['total_seconds'])} · ${formatDate(item['started_at'])}',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                            ],
+                          ),
+                  ),
+                  CardSection(
+                    title: 'Compras / Transações',
+                    child: _transactions.isEmpty
+                        ? const Text('Sem transações registadas.')
+                        : Column(
+                            children: [
+                              for (final raw in _transactions)
+                                Builder(
+                                  builder: (context) {
+                                    final item = (raw as Map)
+                                        .cast<String, dynamic>();
+                                    return Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 10,
+                                      ),
+                                      child: Align(
+                                        alignment: Alignment.centerLeft,
+                                        child: Text(
+                                          '${item['description'] ?? 'Transação'} · ${moneyOrDash(item['amount'])}\n${_formatHours(item['seconds'])} · ${formatDate(item['transaction_at'])}',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                            ],
+                          ),
+                  ),
+                ],
+              ),
+      ),
+    );
+  }
 }
 
 class CompanyScreen extends _CompanyLikeScreen {
@@ -2139,101 +4387,6 @@ class SettingsScreen extends _CompanyLikeScreen {
         savePath: '/settings/sales-goal',
         singleNumberField: true,
       );
-}
-
-class _JsonModuleScreen extends StatefulWidget {
-  const _JsonModuleScreen({
-    required this.controller,
-    required this.title,
-    required this.endpoint,
-    required this.itemBuilder,
-    this.rootListKey,
-    this.subtitleBuilder,
-  });
-
-  final AppController controller;
-  final String title;
-  final String endpoint;
-  final String? rootListKey;
-  final String Function(Map<String, dynamic> item) itemBuilder;
-  final String Function(Map<String, dynamic> item)? subtitleBuilder;
-
-  @override
-  State<_JsonModuleScreen> createState() => _JsonModuleScreenState();
-}
-
-class _JsonModuleScreenState extends State<_JsonModuleScreen> {
-  bool _loading = true;
-  String? _error;
-  List<dynamic> _items = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      final result = await widget.controller.client.get(widget.endpoint);
-      final source = widget.rootListKey == null
-          ? result['data']
-          : (result['data'] as Map<String, dynamic>)[widget.rootListKey];
-      setState(() => _items = source as List<dynamic>? ?? []);
-    } on ApiException catch (error) {
-      setState(() => _error = error.message);
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(middle: Text(widget.title)),
-      child: SafeArea(
-        child: _loading
-            ? const Center(child: CupertinoActivityIndicator(radius: 16))
-            : _error != null
-            ? ErrorState(message: _error!, onRetry: _load)
-            : _items.isEmpty
-            ? const EmptyState('Sem dados disponíveis.')
-            : ListView.builder(
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
-                ),
-                itemCount: _items.length,
-                itemBuilder: (context, index) {
-                  final item = (_items[index] as Map).cast<String, dynamic>();
-                  final subtitle =
-                      widget.subtitleBuilder?.call(item) ??
-                      item.entries
-                          .where(
-                            (entry) =>
-                                entry.key != 'id' &&
-                                entry.value != null &&
-                                entry.value.toString().isNotEmpty,
-                          )
-                          .take(3)
-                          .map((entry) => '${entry.key}: ${entry.value}')
-                          .join(' · ');
-                  return CardSection(
-                    title: widget.itemBuilder(item),
-                    child: Text(
-                      subtitle.isEmpty ? 'Sem detalhes.' : subtitle,
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                  );
-                },
-              ),
-      ),
-    );
-  }
 }
 
 class _QuotesSummary extends StatelessWidget {

@@ -26,8 +26,11 @@ class UserFactory extends Factory
         return [
             'name' => fake()->name(),
             'email' => fake()->unique()->safeEmail(),
+            'role' => \App\Models\User::ROLE_ADMIN,
+            'client_id' => null,
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
+            'must_change_password' => false,
             'remember_token' => Str::random(10),
         ];
     }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Models\ClientCredential;
 use App\Models\Project;
 use Illuminate\Http\Request;
@@ -9,8 +10,12 @@ use Inertia\Inertia;
 
 class ProjectCredentialController extends Controller
 {
+    use InteractsWithClientPortalUsers;
+
     public function index(Project $project)
     {
+        $this->ensureProjectOwnership($project);
+
         $project->load('client');
 
         $credentials = $project->credentials()
@@ -25,6 +30,9 @@ class ProjectCredentialController extends Controller
 
     public function store(Request $request, Project $project)
     {
+        $this->abortIfClientUser();
+        $this->ensureProjectOwnership($project);
+
         $data = $request->validate([
             'label' => ['required', 'string', 'max:150'],
             'username' => ['nullable', 'string', 'max:255'],
@@ -42,6 +50,9 @@ class ProjectCredentialController extends Controller
 
     public function destroy(Project $project, ClientCredential $credential)
     {
+        $this->abortIfClientUser();
+        $this->ensureProjectOwnership($project);
+
         if ($credential->project_id !== $project->id) {
             abort(404);
         }

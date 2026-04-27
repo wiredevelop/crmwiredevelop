@@ -117,7 +117,7 @@ class ProductApiController extends Controller
             $data['price'] = null;
         }
 
-        if (!$product) {
+        if (! $product) {
             $product = Product::create([
                 'type' => $data['type'],
                 'name' => $data['name'],

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
@@ -32,6 +34,8 @@ class AppController extends ChangeNotifier {
   String? get token => _token;
   Map<String, dynamic>? get user => _user;
   bool get biometricEnabled => _biometricEnabled;
+  bool get mustChangePassword => _user?['must_change_password'] == true;
+  bool get isClientUser => _user?['role'] == 'client';
 
   ApiClient get client => ApiClient(baseUrl: _baseUrl, token: _token);
 
@@ -48,11 +52,18 @@ class AppController extends ChangeNotifier {
     _token = await _storage.read(key: 'token');
     _biometricEnabled =
         (await _storage.read(key: 'biometric_enabled')) == 'true';
-    final rawName = await _storage.read(key: 'user_name');
-    final rawEmail = await _storage.read(key: 'user_email');
-
-    if (rawName != null || rawEmail != null) {
-      _user = {'name': rawName, 'email': rawEmail};
+    final rawUserPayload = await _storage.read(key: 'user_payload');
+    if (rawUserPayload != null && rawUserPayload.isNotEmpty) {
+      final decoded = jsonDecode(rawUserPayload);
+      if (decoded is Map<String, dynamic>) {
+        _user = decoded;
+      }
+    } else {
+      final rawName = await _storage.read(key: 'user_name');
+      final rawEmail = await _storage.read(key: 'user_email');
+      if (rawName != null || rawEmail != null) {
+        _user = {'name': rawName, 'email': rawEmail};
+      }
     }
 
     _isReady = true;
@@ -117,9 +128,20 @@ class AppController extends ChangeNotifier {
     _user = (payload['user'] as Map).cast<String, dynamic>();
 
     await _storage.write(key: 'token', value: _token);
-    await _storage.write(key: 'user_name', value: _user?['name']?.toString());
-    await _storage.write(key: 'user_email', value: _user?['email']?.toString());
+    await _persistUser();
 
+    notifyListeners();
+  }
+
+  Future<void> completePasswordChange({required String password}) async {
+    final data = await client.changePassword(password: password);
+    final payload = data['data'] as Map<String, dynamic>;
+
+    _apiPassword = password;
+    _user = (payload['user'] as Map).cast<String, dynamic>();
+
+    await _storage.write(key: 'api_password', value: _apiPassword);
+    await _persistUser();
     notifyListeners();
   }
 
@@ -166,6 +188,16 @@ class AppController extends ChangeNotifier {
     await _storage.delete(key: 'token');
     await _storage.delete(key: 'user_name');
     await _storage.delete(key: 'user_email');
+    await _storage.delete(key: 'user_payload');
     notifyListeners();
+  }
+
+  Future<void> _persistUser() async {
+    await _storage.write(key: 'user_name', value: _user?['name']?.toString());
+    await _storage.write(key: 'user_email', value: _user?['email']?.toString());
+    await _storage.write(
+      key: 'user_payload',
+      value: jsonEncode(_user ?? <String, dynamic>{}),
+    );
   }
 }

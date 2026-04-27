@@ -2,14 +2,20 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Models\Client;
 use App\Models\ClientCredential;
 use Illuminate\Http\Request;
 
 class ClientCredentialController extends Controller
 {
+    use InteractsWithClientPortalUsers;
+
     public function store(Request $request, Client $client)
     {
+        $this->abortIfClientUser();
+        $this->ensureClientOwnership($client);
+
         $data = $request->validate([
             'object_id' => ['required', 'integer'],
             'label' => ['required', 'string', 'max:150'],
@@ -30,6 +36,9 @@ class ClientCredentialController extends Controller
 
     public function destroy(Client $client, ClientCredential $credential)
     {
+        $this->abortIfClientUser();
+        $this->ensureClientOwnership($client);
+
         if ($credential->client_id !== $client->id) {
             abort(404);
         }

@@ -35,7 +35,6 @@ class SettingsController extends Controller
         return back()->with('success', 'Meta de vendas atualizada.');
     }
 
-
     public function toggleIde(Request $request)
     {
         $status = $this->ideStatus();
@@ -43,8 +42,9 @@ class SettingsController extends Controller
         $service = $this->ideServiceName();
 
         $result = $this->runSystemctl([$action, $service]);
-        if (!$result['ok']) {
+        if (! $result['ok']) {
             $message = $result['output'] ? "Falha ao atualizar IDE: {$result['output']}" : 'Falha ao atualizar IDE.';
+
             return back()->with('error', $message);
         }
 

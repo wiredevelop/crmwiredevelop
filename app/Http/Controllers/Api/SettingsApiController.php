@@ -44,7 +44,7 @@ class SettingsApiController extends Controller
         $service = $this->ideServiceName();
 
         $result = $this->runSystemctl([$action, $service]);
-        if (!$result['ok']) {
+        if (! $result['ok']) {
             return $this->error($result['output'] ? "Falha ao atualizar IDE: {$result['output']}" : 'Falha ao atualizar IDE.', [], 500);
         }
 
@@ -62,6 +62,7 @@ class SettingsApiController extends Controller
     {
         $command = (string) config('services.code_server.systemctl', 'systemctl');
         $parts = preg_split('/\s+/', trim($command)) ?: [];
+
         return $parts ?: ['systemctl'];
     }
 

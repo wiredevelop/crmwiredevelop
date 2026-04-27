@@ -7,6 +7,7 @@ use Illuminate\Console\Command;
 class BuildProject extends Command
 {
     protected $signature = 'app:build';
+
     protected $description = 'Build frontend + clear Laravel cache';
 
     public function handle()

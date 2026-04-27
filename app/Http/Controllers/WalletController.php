@@ -20,11 +20,11 @@ class WalletController extends Controller
         $clients = Client::orderBy('name')->get(['id', 'name', 'company']);
         $selectedClientId = $request->query('client_id');
 
-        if (!$selectedClientId && $clients->isNotEmpty()) {
+        if (! $selectedClientId && $clients->isNotEmpty()) {
             $selectedClientId = $clients->first()->id;
         }
 
-        if ($selectedClientId && !$clients->contains('id', (int) $selectedClientId)) {
+        if ($selectedClientId && ! $clients->contains('id', (int) $selectedClientId)) {
             $selectedClientId = null;
         }
 
@@ -43,7 +43,7 @@ class WalletController extends Controller
                     'pack_items' => $pack->packItems
                         ->sortBy('order')
                         ->values()
-                        ->map(fn($item) => [
+                        ->map(fn ($item) => [
                             'id' => $item->id,
                             'hours' => $item->hours,
                             'normal_price' => $item->normal_price,
@@ -127,9 +127,9 @@ class WalletController extends Controller
         $wallet = Wallet::firstOrCreate([
             'client_id' => $data['client_id'],
         ], [
-                'balance_seconds' => 0,
-                'balance_amount' => 0,
-            ]);
+            'balance_seconds' => 0,
+            'balance_amount' => 0,
+        ]);
 
         WalletTransaction::create([
             'wallet_id' => $wallet->id,

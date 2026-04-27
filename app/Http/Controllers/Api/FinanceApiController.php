@@ -61,7 +61,7 @@ class FinanceApiController extends Controller
             ->map(function ($transaction) {
                 $description = $transaction->description ?? $transaction->product?->name ?? '—';
                 if ($transaction->packItem?->hours) {
-                    $description .= ' • ' . $transaction->packItem->hours . 'h';
+                    $description .= ' • '.$transaction->packItem->hours.'h';
                 }
 
                 return [
@@ -141,11 +141,11 @@ class FinanceApiController extends Controller
 
         $project = Project::with('client')->findOrFail($data['project_id']);
 
-        if (!empty($data['invoice_id'])) {
+        if (! empty($data['invoice_id'])) {
             $invoice = Invoice::findOrFail($data['invoice_id']);
             $sameClient = (int) $invoice->client_id === (int) $project->client_id;
-            $sameProject = !$invoice->project_id || (int) $invoice->project_id === (int) $project->id;
-            if (!$sameClient || !$sameProject) {
+            $sameProject = ! $invoice->project_id || (int) $invoice->project_id === (int) $project->id;
+            if (! $sameClient || ! $sameProject) {
                 return $this->error('A fatura selecionada nao corresponde ao projeto ou cliente.', ['invoice_id' => ['A fatura selecionada nao corresponde ao projeto ou cliente.']], 422);
             }
         }
@@ -165,6 +165,7 @@ class FinanceApiController extends Controller
     public function destroyInstallment(Installment $installment): JsonResponse
     {
         $installment->delete();
+
         return $this->success([], 'Parcela removida.');
     }
 
@@ -188,6 +189,7 @@ class FinanceApiController extends Controller
             $invoice->is_installment = $data['is_installment'];
             $invoice->installment_count = $count;
             $invoice->save();
+
             return $this->success(['invoice' => $invoice], 'Configuração de parcelas atualizada.');
         }
 
@@ -196,6 +198,7 @@ class FinanceApiController extends Controller
             $transaction->is_installment = $data['is_installment'];
             $transaction->installment_count = $count;
             $transaction->save();
+
             return $this->success(['transaction' => $transaction], 'Configuração de parcelas atualizada.');
         }
 
@@ -211,8 +214,8 @@ class FinanceApiController extends Controller
         $transaction = WalletTransaction::with('wallet')->findOrFail($id);
         $shouldInvoice = (bool) $data['to_invoice'];
 
-        if ($shouldInvoice && !$transaction->invoice_id) {
-            if (!$transaction->wallet?->client_id) {
+        if ($shouldInvoice && ! $transaction->invoice_id) {
+            if (! $transaction->wallet?->client_id) {
                 return $this->error('Nao foi possivel encontrar o cliente para faturar.', ['to_invoice' => ['Nao foi possivel encontrar o cliente para faturar.']], 422);
             }
 
@@ -220,7 +223,7 @@ class FinanceApiController extends Controller
             $transaction->invoice_id = $invoice->id;
         }
 
-        if (!$shouldInvoice && $transaction->invoice_id) {
+        if (! $shouldInvoice && $transaction->invoice_id) {
             $this->removeTransactionFromInvoice($transaction);
         }
 
@@ -239,12 +242,13 @@ class FinanceApiController extends Controller
         $project = Project::with(['quote', 'invoice', 'invoice.items'])->findOrFail($id);
         $shouldInvoice = (bool) $data['to_invoice'];
 
-        if ($shouldInvoice && !$project->invoice) {
+        if ($shouldInvoice && ! $project->invoice) {
             $invoice = $this->createInvoiceForProject($project);
+
             return $this->success(['invoice' => $invoice], 'Projeto faturado.');
         }
 
-        if (!$shouldInvoice && $project->invoice) {
+        if (! $shouldInvoice && $project->invoice) {
             $this->removeProjectFromInvoice($project);
         }
 
@@ -326,7 +330,7 @@ class FinanceApiController extends Controller
             $targetInvoice = $this->createInvoiceForClient((int) $clientIds->first());
         }
 
-        if (!$targetInvoice) {
+        if (! $targetInvoice) {
             return $this->error('Nao foi possivel criar a fatura.', ['bulk' => ['Nao foi possivel criar a fatura.']], 422);
         }
 
@@ -335,11 +339,11 @@ class FinanceApiController extends Controller
                 continue;
             }
 
-            if (!$transaction->wallet?->client_id) {
+            if (! $transaction->wallet?->client_id) {
                 continue;
             }
 
-            if (!$transaction->invoice_id) {
+            if (! $transaction->invoice_id) {
                 $this->addTransactionToInvoice($targetInvoice, $transaction);
             }
         }
@@ -354,6 +358,7 @@ class FinanceApiController extends Controller
         $invoice = $this->createInvoiceForClient($transaction->wallet->client_id);
         $this->addTransactionToInvoice($invoice, $transaction);
         $this->recalculateInvoice($invoice);
+
         return $invoice;
     }
 
@@ -416,9 +421,10 @@ class FinanceApiController extends Controller
 
     private function removeTransactionFromInvoice(WalletTransaction $transaction): void
     {
-        if (!$transaction->invoice_id) {
+        if (! $transaction->invoice_id) {
             $transaction->to_invoice = false;
             $transaction->save();
+
             return;
         }
 
@@ -454,7 +460,7 @@ class FinanceApiController extends Controller
 
     private function removeProjectFromInvoice(Project $project): void
     {
-        if (!$project->invoice) {
+        if (! $project->invoice) {
             return;
         }
 
@@ -478,7 +484,7 @@ class FinanceApiController extends Controller
 
     private function calculateQuoteTotal(?Quote $quote): float
     {
-        if (!$quote) {
+        if (! $quote) {
             return 0;
         }
 

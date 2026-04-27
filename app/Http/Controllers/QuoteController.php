@@ -2,24 +2,33 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Quote;
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Models\Installment;
+use App\Models\Quote;
 use App\Support\CompanySettings;
-use Illuminate\Http\Request;
-use Inertia\Inertia;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Inertia\Inertia;
 use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\PhpWord;
 
 class QuoteController extends Controller
 {
+    use InteractsWithClientPortalUsers;
+
     public function index()
     {
-        $quotes = Quote::with('project.client')
+        $query = Quote::with('project.client')
             ->whereHas('project', function ($query) {
                 $query->whereNotIn('status', ['concluido', 'cancelado']);
-            })
+            });
+
+        if ($this->isClientUser()) {
+            $query->whereHas('project', fn ($projectQuery) => $projectQuery->where('client_id', $this->currentClientId()));
+        }
+
+        $quotes = $query
             ->latest()
             ->paginate(15);
 
@@ -67,12 +76,17 @@ class QuoteController extends Controller
 
     public function show(Quote $quote)
     {
+        $this->ensureQuoteOwnership($quote);
         $quote->load('project.client');
+
         return Inertia::render('Quotes/Show', compact('quote'));
     }
 
     public function updateAdjudication(Request $request, Quote $quote): RedirectResponse
     {
+        $this->ensureQuoteOwnership($quote);
+        $this->abortIfClientUser();
+
         $data = $request->validate([
             'adjudication_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'adjudication_paid_at' => ['nullable', 'date'],
@@ -92,14 +106,17 @@ class QuoteController extends Controller
 
     public function pdf(Quote $quote)
     {
+        $this->ensureQuoteOwnership($quote);
+
         return $this->generatePdf($quote);
     }
 
     public function docx(Quote $quote)
     {
+        $this->ensureQuoteOwnership($quote);
         $quote->load(['project.client', 'quoteProducts']);
 
-        $phpWord = new PhpWord();
+        $phpWord = new PhpWord;
         $phpWord->setDefaultFontName('Calibri');
         $phpWord->setDefaultFontSize(11);
 
@@ -111,9 +128,10 @@ class QuoteController extends Controller
             $text = (string) $text;
             $text = str_replace('&', 'e', $text);
             $text = preg_replace('/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]/u', '', $text);
+
             return $text;
         };
-        $money = fn ($value) => number_format((float) $value, 2, ',', '.') . ' €';
+        $money = fn ($value) => number_format((float) $value, 2, ',', '.').' €';
 
         $brand = '015557';
         $lightBg = 'F5F7F7';
@@ -158,22 +176,22 @@ class QuoteController extends Controller
         $section->addTextBreak(1);
 
         $section->addTitle($sanitize('Informação'), 2);
-        $section->addText($sanitize('Projeto: ' . ($project->name ?? '—')), [], $paraJust);
-        $clientLine = 'Cliente: ' . ($client->name ?? '—');
-        if (!empty($client?->company)) {
-            $clientLine .= ' - ' . $client->company;
+        $section->addText($sanitize('Projeto: '.($project->name ?? '—')), [], $paraJust);
+        $clientLine = 'Cliente: '.($client->name ?? '—');
+        if (! empty($client?->company)) {
+            $clientLine .= ' - '.$client->company;
         }
         $section->addText($sanitize($clientLine), [], $paraJust);
-        $typeLine = 'Tipo: ' . ($quote->project_type ?? '—');
-        if (!empty($quote->technologies)) {
-            $typeLine .= ' - Tecnologias: ' . $quote->technologies;
+        $typeLine = 'Tipo: '.($quote->project_type ?? '—');
+        if (! empty($quote->technologies)) {
+            $typeLine .= ' - Tecnologias: '.$quote->technologies;
         }
         $section->addText($sanitize($typeLine), [], $paraJust);
         $section->addTextBreak(1);
 
-        if (!empty($quote->description)) {
+        if (! empty($quote->description)) {
             $section->addTitle($sanitize('Descrição'), 2);
-            foreach (preg_split("/\\r\\n|\\r|\\n/", $quote->description) as $line) {
+            foreach (preg_split('/\\r\\n|\\r|\\n/', $quote->description) as $line) {
                 $section->addText($sanitize($line), [], $paraJust);
             }
             $section->addTextBreak(1);
@@ -258,9 +276,9 @@ class QuoteController extends Controller
         $valueTable->addCell(2000, ['bgColor' => $lightBg])->addText($sanitize($money($baseTotal)), ['bold' => true], ['alignment' => 'right']);
         $section->addTextBreak(1);
 
-        if (!empty($quote->terms)) {
+        if (! empty($quote->terms)) {
             $section->addTitle($sanitize('Prazos e Condições'), 2);
-            foreach (preg_split("/\\r\\n|\\r|\\n/", $quote->terms) as $line) {
+            foreach (preg_split('/\\r\\n|\\r|\\n/', $quote->terms) as $line) {
                 $section->addText($sanitize($line), [], $paraJust);
             }
             $section->addTextBreak(1);
@@ -269,7 +287,7 @@ class QuoteController extends Controller
         if ($quote->quoteProducts && $quote->quoteProducts->count()) {
             $section->addTitle($sanitize('Produtos / Packs Recomendados'), 2);
             foreach ($quote->quoteProducts as $qp) {
-                $section->addText($sanitize(($qp->name ?? 'Produto') . ' (' . strtoupper($qp->type ?? '') . ')'), ['bold' => true], $paraJust);
+                $section->addText($sanitize(($qp->name ?? 'Produto').' ('.strtoupper($qp->type ?? '').')'), ['bold' => true], $paraJust);
                 if ($qp->type === 'pack' && is_array($qp->pack_items)) {
                     $packTable = $section->addTable($tableStyle);
                     $packTable->addRow();
@@ -279,10 +297,10 @@ class QuoteController extends Controller
                     $packTable->addCell(2500, ['bgColor' => $brand])->addText($sanitize('Validade'), ['bold' => true, 'color' => 'FFFFFF']);
                     foreach ($qp->pack_items as $item) {
                         $packTable->addRow();
-                        $packTable->addCell(2000)->addText($sanitize(($item['hours'] ?? 0) . 'h'));
+                        $packTable->addCell(2000)->addText($sanitize(($item['hours'] ?? 0).'h'));
                         $packTable->addCell(3500)->addText($sanitize($money($item['normal_price'] ?? 0)), [], ['alignment' => 'right']);
                         $packTable->addCell(3000)->addText($sanitize($money($item['pack_price'] ?? 0)), [], ['alignment' => 'right']);
-                        $packTable->addCell(2500)->addText($sanitize(($item['validity_months'] ?? 0) . ' meses'));
+                        $packTable->addCell(2500)->addText($sanitize(($item['validity_months'] ?? 0).' meses'));
                     }
                 }
                 if (is_array($qp->info_fields) && count($qp->info_fields)) {
@@ -290,14 +308,14 @@ class QuoteController extends Controller
                     foreach ($qp->info_fields as $field) {
                         $label = $field['label'] ?? '';
                         $value = $field['value'] ?? '';
-                        $section->addText($sanitize(trim($label . ': ' . $value)), [], $paraJust);
+                        $section->addText($sanitize(trim($label.': '.$value)), [], $paraJust);
                     }
                 }
                 $section->addTextBreak(1);
             }
         }
 
-        if (!empty($company)) {
+        if (! empty($company)) {
             // Keep the whole payment block together on the same page
             $paymentTable = $section->addTable($noBorderTable);
             $paymentTable->addRow(null, ['cantSplit' => true]);
@@ -305,25 +323,37 @@ class QuoteController extends Controller
 
             $paymentCell->addText($sanitize('Dados para pagamento'), $title2);
 
-            if (!empty($company['email'])) $paymentCell->addText($sanitize('Email: ' . $company['email']), [], $paraJust);
-            if (!empty($company['phone'])) $paymentCell->addText($sanitize('Telefone: ' . $company['phone']), [], $paraJust);
-            if (!empty($company['website'])) $paymentCell->addText($sanitize($company['website']), [], $paraJust);
-            if (!empty($company['payment_methods']) && is_array($company['payment_methods'])) {
+            if (! empty($company['email'])) {
+                $paymentCell->addText($sanitize('Email: '.$company['email']), [], $paraJust);
+            }
+            if (! empty($company['phone'])) {
+                $paymentCell->addText($sanitize('Telefone: '.$company['phone']), [], $paraJust);
+            }
+            if (! empty($company['website'])) {
+                $paymentCell->addText($sanitize($company['website']), [], $paraJust);
+            }
+            if (! empty($company['payment_methods']) && is_array($company['payment_methods'])) {
                 $paymentCell->addText($sanitize('Metodos:'), ['bold' => true], $paraJust);
                 foreach ($company['payment_methods'] as $method) {
-                    if (!empty($method['label']) || !empty($method['value'])) {
-                        $paymentCell->addText($sanitize(($method['label'] ?? 'Metodo') . ': ' . ($method['value'] ?? '')), [], $paraJust);
+                    if (! empty($method['label']) || ! empty($method['value'])) {
+                        $paymentCell->addText($sanitize(($method['label'] ?? 'Metodo').': '.($method['value'] ?? '')), [], $paraJust);
                     }
                 }
             }
-            if (!empty($company['payment_notes'])) {
-                foreach (preg_split("/\\r\\n|\\r|\\n/", $company['payment_notes']) as $line) {
+            if (! empty($company['payment_notes'])) {
+                foreach (preg_split('/\\r\\n|\\r|\\n/', $company['payment_notes']) as $line) {
                     $paymentCell->addText($sanitize($line), [], $paraJust);
                 }
             }
-            if (!empty($company['iban'])) $paymentCell->addText($sanitize('IBAN: ' . $company['iban']), [], $paraJust);
-            if (!empty($company['bank_name'])) $paymentCell->addText($sanitize('Banco: ' . $company['bank_name']), [], $paraJust);
-            if (!empty($company['swift'])) $paymentCell->addText($sanitize('SWIFT/BIC: ' . $company['swift']), [], $paraJust);
+            if (! empty($company['iban'])) {
+                $paymentCell->addText($sanitize('IBAN: '.$company['iban']), [], $paraJust);
+            }
+            if (! empty($company['bank_name'])) {
+                $paymentCell->addText($sanitize('Banco: '.$company['bank_name']), [], $paraJust);
+            }
+            if (! empty($company['swift'])) {
+                $paymentCell->addText($sanitize('SWIFT/BIC: '.$company['swift']), [], $paraJust);
+            }
         }
 
         $filename = "Orcamento-{$quote->id}.docx";
@@ -338,19 +368,22 @@ class QuoteController extends Controller
 
     public function partnerDocx(Quote $quote)
     {
+        $this->ensureQuoteOwnership($quote);
+        $this->abortIfClientUser();
+
         $quote->load(['project.client', 'quoteProducts']);
 
         $project = $quote->project;
         $client = $project?->client;
         $templatePath = base_path('docs/orc-site-template.docx');
         $tmpDir = storage_path('app/tmp');
-        if (!is_dir($tmpDir)) {
+        if (! is_dir($tmpDir)) {
             mkdir($tmpDir, 0755, true);
         }
-        $tmpTemplate = $tmpDir . '/partner-template-' . $quote->id . '.docx';
+        $tmpTemplate = $tmpDir.'/partner-template-'.$quote->id.'.docx';
         copy($templatePath, $tmpTemplate);
 
-        $zip = new \ZipArchive();
+        $zip = new \ZipArchive;
         if ($zip->open($tmpTemplate) === true) {
             $xml = $zip->getFromName('word/document.xml');
             $numberingXml = $zip->getFromName('word/numbering.xml');
@@ -371,18 +404,20 @@ class QuoteController extends Controller
 
                 $values = [];
                 $dev = (float) ($quote->price_development ?? 0);
-                if ($dev > 0) $values[] = 'Desenvolvimento: ' . $this->formatMoneyPt($dev);
+                if ($dev > 0) {
+                    $values[] = 'Desenvolvimento: '.$this->formatMoneyPt($dev);
+                }
                 if ($quote->include_domain) {
-                    $values[] = 'Domínio (anual): ' . $this->formatMoneyPt((float) ($quote->price_domain_first_year ?? 0));
+                    $values[] = 'Domínio (anual): '.$this->formatMoneyPt((float) ($quote->price_domain_first_year ?? 0));
                 }
                 if ($quote->include_hosting) {
-                    $values[] = 'Alojamento (1º ano): ' . $this->formatMoneyPt((float) ($quote->price_hosting_first_year ?? 0));
-                    $values[] = 'Alojamento (anos seguintes): ' . $this->formatMoneyPt((float) ($quote->price_hosting_other_years ?? 0));
+                    $values[] = 'Alojamento (1º ano): '.$this->formatMoneyPt((float) ($quote->price_hosting_first_year ?? 0));
+                    $values[] = 'Alojamento (anos seguintes): '.$this->formatMoneyPt((float) ($quote->price_hosting_other_years ?? 0));
                 }
 
                 $payload = [
-                    'quote_title' => 'ORÇAMENTO ' . ($project->name ?? ''),
-                    'project_type_line' => 'DESENVOLVIMENTO ' . mb_strtoupper((string) ($quote->project_type ?? '')),
+                    'quote_title' => 'ORÇAMENTO '.($project->name ?? ''),
+                    'project_type_line' => 'DESENVOLVIMENTO '.mb_strtoupper((string) ($quote->project_type ?? '')),
                     'quote_date' => $this->formatDatePt($quote->created_at ?? now()),
                     'description' => $this->splitToParagraphs($quote->description ?? ''),
                     'development_plan' => $planLines,
@@ -405,7 +440,7 @@ class QuoteController extends Controller
 
     private function applyPartnerTemplateData(string $xml, array $data, ?string $bulletNumId): string
     {
-        $dom = new \DOMDocument();
+        $dom = new \DOMDocument;
         $dom->preserveWhiteSpace = true;
         $dom->formatOutput = false;
         $dom->loadXML($xml);
@@ -430,7 +465,7 @@ class QuoteController extends Controller
         $dateReplaced = false;
         foreach ($nodes as $node) {
             if (trim($node->nodeValue) === 'Data:') {
-                $node->nodeValue = 'Data: ' . ($data['quote_date'] ?? '');
+                $node->nodeValue = 'Data: '.($data['quote_date'] ?? '');
                 $dateReplaced = true;
                 break;
             }
@@ -457,7 +492,7 @@ class QuoteController extends Controller
         $paragraphs = $xpath->query('//w:p');
         foreach ($paragraphs as $p) {
             $pPr = $xpath->query('w:pPr', $p)->item(0);
-            if (!$pPr) {
+            if (! $pPr) {
                 $pPr = $p->ownerDocument->createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:pPr');
                 $p->insertBefore($pPr, $p->firstChild);
             }
@@ -465,11 +500,10 @@ class QuoteController extends Controller
         }
     }
 
-
     private function normalizeFirstBodyParagraphSpacing(\DOMXPath $xpath): void
     {
         $body = $xpath->query('//w:body')->item(0);
-        if (!$body) {
+        if (! $body) {
             return;
         }
         $firstP = null;
@@ -479,16 +513,16 @@ class QuoteController extends Controller
                 break;
             }
         }
-        if (!$firstP) {
+        if (! $firstP) {
             return;
         }
         $pPr = $xpath->query('w:pPr', $firstP)->item(0);
-        if (!$pPr) {
+        if (! $pPr) {
             $pPr = $firstP->ownerDocument->createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:pPr');
             $firstP->insertBefore($pPr, $firstP->firstChild);
         }
         $spacing = $xpath->query('w:spacing', $pPr)->item(0);
-        if (!$spacing) {
+        if (! $spacing) {
             $spacing = $firstP->ownerDocument->createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:spacing');
             $pPr->appendChild($spacing);
         }
@@ -499,12 +533,12 @@ class QuoteController extends Controller
     private function removeLeadingEmptyParagraphs(\DOMXPath $xpath): void
     {
         $body = $xpath->query('//w:body')->item(0);
-        if (!$body) {
+        if (! $body) {
             return;
         }
 
         foreach (iterator_to_array($body->childNodes) as $child) {
-            if (!($child instanceof \DOMElement) || $child->localName !== 'p') {
+            if (! ($child instanceof \DOMElement) || $child->localName !== 'p') {
                 continue;
             }
             $texts = $xpath->query('.//w:t', $child);
@@ -524,10 +558,10 @@ class QuoteController extends Controller
 
     private function normalizePartnerHeader(string $xml): string
     {
-        $dom = new \DOMDocument();
+        $dom = new \DOMDocument;
         $dom->preserveWhiteSpace = true;
         $dom->formatOutput = false;
-        if (!@$dom->loadXML($xml)) {
+        if (! @$dom->loadXML($xml)) {
             return $xml;
         }
 
@@ -541,13 +575,13 @@ class QuoteController extends Controller
         foreach ($anchors as $anchor) {
             $inline = $dom->createElementNS('http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing', 'wp:inline');
 
-            foreach (['distT','distB','distL','distR'] as $attr) {
+            foreach (['distT', 'distB', 'distL', 'distR'] as $attr) {
                 if ($anchor->hasAttribute($attr)) {
                     $inline->setAttribute($attr, $anchor->getAttribute($attr));
                 }
             }
 
-            foreach (['extent','effectExtent','docPr','cNvGraphicFramePr','graphic'] as $childName) {
+            foreach (['extent', 'effectExtent', 'docPr', 'cNvGraphicFramePr', 'graphic'] as $childName) {
                 $node = null;
                 foreach ($anchor->childNodes as $child) {
                     if ($child instanceof \DOMElement && $child->localName === $childName) {
@@ -567,19 +601,19 @@ class QuoteController extends Controller
         $logoParagraphs = $xpath->query('//w:p[w:r/w:drawing]');
         foreach ($logoParagraphs as $p) {
             $pPr = $xpath->query('w:pPr', $p)->item(0);
-            if (!$pPr) {
+            if (! $pPr) {
                 $pPr = $dom->createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:pPr');
                 $p->insertBefore($pPr, $p->firstChild);
             }
             $jc = $xpath->query('w:jc', $pPr)->item(0);
-            if (!$jc) {
+            if (! $jc) {
                 $jc = $dom->createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:jc');
                 $pPr->appendChild($jc);
             }
             $jc->setAttributeNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:val', 'center');
 
             $spacing = $xpath->query('w:spacing', $pPr)->item(0);
-            if (!$spacing) {
+            if (! $spacing) {
                 $spacing = $dom->createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:spacing');
                 $pPr->appendChild($spacing);
             }
@@ -592,7 +626,7 @@ class QuoteController extends Controller
             $pPr = $xpath->query('w:pPr', $p)->item(0);
             if ($pPr) {
                 $spacing = $xpath->query('w:spacing', $pPr)->item(0);
-                if (!$spacing) {
+                if (! $spacing) {
                     $spacing = $dom->createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:spacing');
                     $pPr->appendChild($spacing);
                 }
@@ -604,12 +638,12 @@ class QuoteController extends Controller
         return $dom->saveXML();
     }
 
-
     private function replaceExactText(array $nodes, string $find, string $replace): void
     {
         foreach ($nodes as $node) {
             if (trim($node->nodeValue) === $find) {
                 $node->nodeValue = $replace;
+
                 return;
             }
         }
@@ -618,11 +652,11 @@ class QuoteController extends Controller
     private function findListParagraphPr(\DOMXPath $xpath, ?string $bulletNumId): ?\DOMElement
     {
         $listP = $xpath->query('//w:p[w:pPr/w:numPr]')->item(0);
-        if (!$listP) {
+        if (! $listP) {
             return null;
         }
         $pPr = $xpath->query('w:pPr', $listP)->item(0);
-        if (!$pPr) {
+        if (! $pPr) {
             return null;
         }
         $clone = $pPr->cloneNode(true);
@@ -632,6 +666,7 @@ class QuoteController extends Controller
                 $numId->setAttributeNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:val', $bulletNumId);
             }
         }
+
         return $clone;
     }
 
@@ -639,7 +674,7 @@ class QuoteController extends Controller
     {
         $startP = $xpath->query("//w:p[w:r/w:t[normalize-space(.)='$startHeading']]")->item(0);
         $endP = $xpath->query("//w:p[w:r/w:t[normalize-space(.)='$endHeading']]")->item(0);
-        if (!$startP || !$endP) {
+        if (! $startP || ! $endP) {
             return;
         }
 
@@ -649,7 +684,7 @@ class QuoteController extends Controller
         while ($current && $current !== $endP) {
             $next = $current->nextSibling;
             if ($current->nodeName === 'w:p') {
-                if (!$stylePPr) {
+                if (! $stylePPr) {
                     $pPr = $xpath->query('w:pPr', $current)->item(0);
                     if ($pPr) {
                         $stylePPr = $pPr->cloneNode(true);
@@ -666,12 +701,14 @@ class QuoteController extends Controller
 
         foreach ($lines as $line) {
             $line = trim((string) $line);
-            if ($line === '') continue;
+            if ($line === '') {
+                continue;
+            }
 
             $p = $doc->createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:p');
             if ($stylePPr) {
                 $pPr = $stylePPr->cloneNode(true);
-                if (!$listStyle) {
+                if (! $listStyle) {
                     $numPr = $pPr->getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'numPr')->item(0);
                     if ($numPr && $numPr->parentNode) {
                         $numPr->parentNode->removeChild($numPr);
@@ -694,7 +731,7 @@ class QuoteController extends Controller
     private function replaceSectionAfterHeadingWithParagraphs(\DOMXPath $xpath, string $startHeading, array $lines, bool $listStyle, ?\DOMElement $listPPr): void
     {
         $startP = $xpath->query("//w:p[w:r/w:t[normalize-space(.)='$startHeading']]")->item(0);
-        if (!$startP) {
+        if (! $startP) {
             return;
         }
 
@@ -704,7 +741,7 @@ class QuoteController extends Controller
         while ($current) {
             $next = $current->nextSibling;
             if ($current->nodeName === 'w:p') {
-                if (!$stylePPr) {
+                if (! $stylePPr) {
                     $pPr = $xpath->query('w:pPr', $current)->item(0);
                     if ($pPr) {
                         $stylePPr = $pPr->cloneNode(true);
@@ -721,12 +758,14 @@ class QuoteController extends Controller
 
         foreach ($lines as $line) {
             $line = trim((string) $line);
-            if ($line === '') continue;
+            if ($line === '') {
+                continue;
+            }
 
             $p = $doc->createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:p');
             if ($stylePPr) {
                 $pPr = $stylePPr->cloneNode(true);
-                if (!$listStyle) {
+                if (! $listStyle) {
                     $numPr = $pPr->getElementsByTagNameNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'numPr')->item(0);
                     if ($numPr && $numPr->parentNode) {
                         $numPr->parentNode->removeChild($numPr);
@@ -749,7 +788,7 @@ class QuoteController extends Controller
     private function splitToParagraphs(string $text): array
     {
         $text = $this->normalizeTextFromHtml($text);
-        $lines = preg_split("/\\r\\n|\\r|\\n/", $text);
+        $lines = preg_split('/\\r\\n|\\r|\\n/', $text);
         $out = [];
         foreach ($lines as $line) {
             $line = trim($line);
@@ -757,19 +796,20 @@ class QuoteController extends Controller
                 $out[] = $line;
             }
         }
+
         return $out;
     }
 
     private function normalizeTextFromHtml(string $text): string
     {
-        if (!preg_match('/<\\s*[\\w-]+[^>]*>/', $text)) {
+        if (! preg_match('/<\\s*[\\w-]+[^>]*>/', $text)) {
             return $text;
         }
 
         $normalized = preg_replace('/<\\s*br\\s*\\/?\\s*>/i', "\n", $text);
         $normalized = preg_replace('/<\\s*\\/p\\s*>/i', "\n", $normalized);
         $normalized = preg_replace('/<\\s*\\/li\\s*>/i', "\n", $normalized);
-        $normalized = preg_replace('/<\\s*li[^>]*>/i', "• ", $normalized);
+        $normalized = preg_replace('/<\\s*li[^>]*>/i', '• ', $normalized);
         $normalized = strip_tags($normalized);
         $normalized = html_entity_decode($normalized, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 
@@ -778,25 +818,28 @@ class QuoteController extends Controller
 
     private function splitToListItems(string $text): array
     {
-        $lines = preg_split("/\\r\\n|\\r|\\n/", $text);
+        $lines = preg_split('/\\r\\n|\\r|\\n/', $text);
         $out = [];
         foreach ($lines as $line) {
             $line = trim($line);
-            if ($line === '') continue;
+            if ($line === '') {
+                continue;
+            }
             $line = preg_replace('/^(•|\\-|\\*|–|—)\\s*/u', '', $line);
             $out[] = $line;
         }
+
         return $out;
     }
 
     private function findBulletNumId(?string $numberingXml): ?string
     {
-        if (!$numberingXml) {
+        if (! $numberingXml) {
             return null;
         }
 
-        $dom = new \DOMDocument();
-        if (!@$dom->loadXML($numberingXml)) {
+        $dom = new \DOMDocument;
+        if (! @$dom->loadXML($numberingXml)) {
             return null;
         }
 
@@ -812,13 +855,13 @@ class QuoteController extends Controller
             }
         }
 
-        if (!$abstracts) {
+        if (! $abstracts) {
             return null;
         }
 
         foreach ($xpath->query('//w:num') as $num) {
             $abstractId = $xpath->query('w:abstractNumId', $num)->item(0);
-            if (!$abstractId) {
+            if (! $abstractId) {
                 continue;
             }
             $abs = $abstractId->getAttribute('w:val');
@@ -840,7 +883,7 @@ class QuoteController extends Controller
                 break;
             }
         }
-        if (!$ind) {
+        if (! $ind) {
             $ind = $doc->createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:ind');
             $pPr->appendChild($ind);
         }
@@ -859,7 +902,7 @@ class QuoteController extends Controller
                 break;
             }
         }
-        if (!$spacing) {
+        if (! $spacing) {
             $spacing = $doc->createElementNS('http://schemas.openxmlformats.org/wordprocessingml/2006/main', 'w:spacing');
             $pPr->appendChild($spacing);
         }
@@ -870,7 +913,7 @@ class QuoteController extends Controller
 
     private function formatMoneyPt(float $value): string
     {
-        return number_format($value, 2, ',', '.') . ' €';
+        return number_format($value, 2, ',', '.').' €';
     }
 
     private function formatDatePt($date): string

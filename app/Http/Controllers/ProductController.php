@@ -2,9 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\PackItem;
 use App\Models\Product;
 use App\Models\ProductMeta;
-use App\Models\PackItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -15,7 +15,7 @@ class ProductController extends Controller
     {
         $type = $request->get('type');
 
-        $products = Product::when($type, fn($q) => $q->where('type', $type))
+        $products = Product::when($type, fn ($q) => $q->where('type', $type))
             ->latest()
             ->get();
 
@@ -120,7 +120,7 @@ class ProductController extends Controller
                 'content_html' => $product->content_html,
 
                 // exatamente o que o Create usa
-                'pack_items' => $product->packItems->map(fn($item) => [
+                'pack_items' => $product->packItems->map(fn ($item) => [
                     'hours' => $item->hours,
                     'normal_price' => $item->normal_price,
                     'pack_price' => $item->pack_price,
@@ -128,7 +128,7 @@ class ProductController extends Controller
                     'featured' => (bool) $item->featured,
                 ]),
 
-                'info_fields' => $product->meta->map(fn($meta) => [
+                'info_fields' => $product->meta->map(fn ($meta) => [
                     'type' => $meta->type,
                     'label' => $meta->label,
                     'value' => $meta->value,
@@ -191,8 +191,9 @@ class ProductController extends Controller
         ProductMeta::where('product_id', $product->id)->delete();
         foreach (($data['info_fields'] ?? []) as $i => $field) {
             $label = trim((string) ($field['label'] ?? ''));
-            if ($label === '')
+            if ($label === '') {
                 continue;
+            }
 
             ProductMeta::create([
                 'product_id' => $product->id,
@@ -211,6 +212,7 @@ class ProductController extends Controller
     public function destroy(Product $product)
     {
         $product->delete();
+
         return redirect()->route('products.index');
     }
 

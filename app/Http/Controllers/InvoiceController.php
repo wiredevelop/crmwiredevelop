@@ -2,21 +2,23 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Models\WalletTransaction;
 use App\Support\CompanySettings;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
-use Barryvdh\DomPDF\Facade\Pdf;
 
 class InvoiceController extends Controller
 {
+    use InteractsWithClientPortalUsers;
+
     public function index(Request $request)
     {
-        $query = Invoice::with(['client', 'project']);
+        $query = $this->scopeByClient(Invoice::with(['client', 'project']));
 
         // FILTROS OPCIONAIS
         if ($request->client) {
@@ -80,6 +82,8 @@ class InvoiceController extends Controller
 
     public function show(Invoice $invoice): Response
     {
+        $this->ensureInvoiceOwnership($invoice);
+
         $invoice->load('client', 'project');
 
         return Inertia::render('Invoices/Show', [
@@ -89,6 +93,9 @@ class InvoiceController extends Controller
 
     public function edit(Invoice $invoice): Response
     {
+        $this->ensureInvoiceOwnership($invoice);
+        $this->abortIfClientUser();
+
         $invoice->load(['client', 'project', 'items']);
 
         return Inertia::render('Invoices/Edit', [
@@ -99,6 +106,9 @@ class InvoiceController extends Controller
 
     public function update(Request $request, Invoice $invoice)
     {
+        $this->ensureInvoiceOwnership($invoice);
+        $this->abortIfClientUser();
+
         $data = $request->validate([
             'payment_method' => ['nullable', 'string', 'max:255'],
             'payment_account' => ['nullable', 'string', 'max:255'],
@@ -140,6 +150,8 @@ class InvoiceController extends Controller
 
     public function pdf(Invoice $invoice)
     {
+        $this->ensureInvoiceOwnership($invoice);
+
         $invoice->load([
             'client',
             'project.quote',
@@ -162,13 +174,15 @@ class InvoiceController extends Controller
             200,
             [
                 'Content-Type' => 'application/pdf',
-                'Content-Disposition' => 'inline; filename="Fatura-' . $invoice->number . '.pdf"'
+                'Content-Disposition' => 'inline; filename="Fatura-'.$invoice->number.'.pdf"',
             ]
         );
     }
 
     public function download(Invoice $invoice)
     {
+        $this->ensureInvoiceOwnership($invoice);
+
         $invoice->load([
             'client',
             'project',
@@ -185,12 +199,15 @@ class InvoiceController extends Controller
 
         return response()->make($pdf->stream(), 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="Fatura-' . $invoice->number . '.pdf"',
+            'Content-Disposition' => 'inline; filename="Fatura-'.$invoice->number.'.pdf"',
         ]);
     }
 
     public function markPaid(Invoice $invoice)
     {
+        $this->ensureInvoiceOwnership($invoice);
+        $this->abortIfClientUser();
+
         $invoice->update([
             'status' => 'pago',
             'paid_at' => now(),
@@ -201,6 +218,9 @@ class InvoiceController extends Controller
 
     public function markPending(Invoice $invoice)
     {
+        $this->ensureInvoiceOwnership($invoice);
+        $this->abortIfClientUser();
+
         $invoice->update([
             'status' => 'pendente',
             'paid_at' => null,
@@ -211,6 +231,9 @@ class InvoiceController extends Controller
 
     public function uninvoice(Invoice $invoice)
     {
+        $this->ensureInvoiceOwnership($invoice);
+        $this->abortIfClientUser();
+
         if ($invoice->status === 'pago') {
             return back()->withErrors([
                 'uninvoice' => 'Nao podes desfaturar uma fatura paga.',
@@ -229,5 +252,4 @@ class InvoiceController extends Controller
 
         return back()->with('success', 'Fatura removida.');
     }
-
 }

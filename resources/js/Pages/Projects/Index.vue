@@ -4,6 +4,23 @@ import { Link, usePage } from '@inertiajs/vue3'
 
 const { projects, statusFilters, currentStatus, totalCount } = usePage().props
 const list = projects.data
+const isClientUser = usePage().props.auth?.user?.role === 'client'
+
+const currency = new Intl.NumberFormat('pt-PT', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+})
+
+const installmentsTotal = (project) => Number(project.installments_total ?? project.installments_sum_amount ?? 0)
+const baseAmount = (project) => Number(project.base_amount ?? project.quote?.price_development ?? 0)
+const adjudicationValue = (project) => {
+    if (project.adjudication_value !== undefined && project.adjudication_value !== null) {
+        return Number(project.adjudication_value)
+    }
+
+    return baseAmount(project) * (Number(project.quote?.adjudication_percent ?? 0) / 100)
+}
+const remainingAmount = (project) => Math.max(0, baseAmount(project) - adjudicationValue(project) - installmentsTotal(project))
 </script>
 
 <template>
@@ -13,7 +30,7 @@ const list = projects.data
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
             <h1 class="text-2xl font-semibold">Projetos</h1>
 
-            <Link href="/projects/create" class="bg-[#015557] text-white px-4 py-2 rounded">
+            <Link v-if="!isClientUser" href="/projects/create" class="bg-[#015557] text-white px-4 py-2 rounded">
             + Novo Projeto
             </Link>
         </div>
@@ -45,7 +62,7 @@ const list = projects.data
                         <th class="py-2 px-3">Cliente</th>
                         <th class="py-2 px-3">Tipo</th>
                         <th class="py-2 px-3">Estado</th>
-                        <th class="py-2 px-3">Preço</th>
+                        <th class="py-2 px-3">{{ isClientUser ? 'Financeiro' : 'Preço' }}</th>
                         <th class="py-2 px-3">Criado</th>
                         <th class="py-2 px-3 w-36"></th>
                     </tr>
@@ -61,7 +78,21 @@ const list = projects.data
                         <td class="py-2 px-3">{{ p.status }}</td>
 
                         <td class="py-2 px-3">
-                            {{ p.quote?.price_development ?? 0 }} €
+                            <div v-if="isClientUser" class="space-y-1">
+                                <div>{{ currency.format(baseAmount(p)) }} €</div>
+                                <div class="text-xs text-gray-500">
+                                    Parcelas: {{ currency.format(installmentsTotal(p)) }} €
+                                </div>
+                                <div v-if="adjudicationValue(p) > 0" class="text-xs text-gray-500">
+                                    Adjudicação: {{ currency.format(adjudicationValue(p)) }} €
+                                </div>
+                                <div class="text-xs text-amber-600">
+                                    falta {{ currency.format(remainingAmount(p)) }} €
+                                </div>
+                            </div>
+                            <template v-else>
+                                {{ p.quote?.price_development ?? 0 }} €
+                            </template>
                         </td>
 
 
@@ -95,6 +126,7 @@ const list = projects.data
                                             DOCX
                                         </a>
                                         <a
+                                            v-if="!isClientUser"
                                             :href="route('quotes.docx.partner', p.quote.id)"
                                             class="block px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
                                         >
@@ -102,7 +134,7 @@ const list = projects.data
                                         </a>
                                     </div>
                                 </div>
-                                <Link :href="`/projects/${p.id}/edit`" class="text-blue-600 hover:underline text-xs">
+                                <Link v-if="!isClientUser" :href="`/projects/${p.id}/edit`" class="text-blue-600 hover:underline text-xs">
                                 Editar
                                 </Link>
                             </div>

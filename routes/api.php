@@ -2,11 +2,13 @@
 
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\ClientApiController;
+use App\Http\Controllers\Api\ClientWalletApiController;
 use App\Http\Controllers\Api\CompanyApiController;
 use App\Http\Controllers\Api\DashboardApiController;
 use App\Http\Controllers\Api\FinanceApiController;
-use App\Http\Controllers\Api\InvoiceApiController;
 use App\Http\Controllers\Api\InterventionApiController;
+use App\Http\Controllers\Api\InvoiceApiController;
+use App\Http\Controllers\Api\ObjectPortalApiController;
 use App\Http\Controllers\Api\ProductApiController;
 use App\Http\Controllers\Api\ProjectApiController;
 use App\Http\Controllers\Api\QuoteApiController;
@@ -30,11 +32,19 @@ Route::prefix('v1')->as('api.')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
+        Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
+    });
+
+    Route::middleware(['auth:sanctum', 'force.password.change'])->group(function () {
         Route::get('/dashboard', [DashboardApiController::class, 'index']);
+        Route::get('/objects', [ObjectPortalApiController::class, 'index']);
+        Route::get('/wallet', [ClientWalletApiController::class, 'show']);
 
         Route::apiResource('clients', ClientApiController::class);
         Route::post('/clients/{client}/notes', [ClientApiController::class, 'storeNote']);
         Route::post('/clients/{client}/duplicate', [ClientApiController::class, 'duplicate']);
+        Route::post('/clients/{client}/portal-user', [ClientApiController::class, 'storePortalUser']);
+        Route::post('/clients/{client}/temporary-password', [ClientApiController::class, 'regenerateTemporaryPassword']);
         Route::post('/clients/{client}/credential-objects', [ClientApiController::class, 'storeCredentialObject']);
         Route::delete('/clients/{client}/credential-objects/{object}', [ClientApiController::class, 'destroyCredentialObject']);
         Route::get('/clients/{client}/credential-objects/{object}/export', [ClientApiController::class, 'exportCredentialObject']);
@@ -47,13 +57,13 @@ Route::prefix('v1')->as('api.')->group(function () {
         Route::post('/projects/{project}/credentials', [ProjectApiController::class, 'storeCredential']);
         Route::delete('/projects/{project}/credentials/{credential}', [ProjectApiController::class, 'destroyCredential']);
 
-        Route::apiResource('products', ProductApiController::class);
-        Route::patch('/products/{product}/payment-methods', [ProductApiController::class, 'updatePaymentMethodsVisibility']);
-        Route::get('/products/{product}/pdf', [ProductApiController::class, 'pdf']);
+        Route::apiResource('products', ProductApiController::class)->middleware('admin.only');
+        Route::patch('/products/{product}/payment-methods', [ProductApiController::class, 'updatePaymentMethodsVisibility'])->middleware('admin.only');
+        Route::get('/products/{product}/pdf', [ProductApiController::class, 'pdf'])->middleware('admin.only');
 
-        Route::get('/quotes', [QuoteApiController::class, 'index']);
-        Route::get('/quotes/{quote}', [QuoteApiController::class, 'show']);
-        Route::post('/quotes/{quote}/adjudication', [QuoteApiController::class, 'updateAdjudication']);
+        Route::get('/quotes', [QuoteApiController::class, 'index'])->middleware('admin.only');
+        Route::get('/quotes/{quote}', [QuoteApiController::class, 'show'])->middleware('admin.only');
+        Route::post('/quotes/{quote}/adjudication', [QuoteApiController::class, 'updateAdjudication'])->middleware('admin.only');
         Route::get('/quotes/{quote}/pdf', [QuoteApiController::class, 'pdf']);
         Route::get('/quotes/{quote}/docx', [QuoteApiController::class, 'docx']);
 
@@ -67,32 +77,32 @@ Route::prefix('v1')->as('api.')->group(function () {
         Route::post('/invoices/{invoice}/pending', [InvoiceApiController::class, 'markPending']);
         Route::post('/invoices/{invoice}/uninvoice', [InvoiceApiController::class, 'uninvoice']);
 
-        Route::get('/company', [CompanyApiController::class, 'index']);
-        Route::put('/company', [CompanyApiController::class, 'update']);
-        Route::patch('/company', [CompanyApiController::class, 'update']);
+        Route::get('/company', [CompanyApiController::class, 'index'])->middleware('admin.only');
+        Route::put('/company', [CompanyApiController::class, 'update'])->middleware('admin.only');
+        Route::patch('/company', [CompanyApiController::class, 'update'])->middleware('admin.only');
 
-        Route::get('/settings', [SettingsApiController::class, 'index']);
-        Route::post('/settings/sales-goal', [SettingsApiController::class, 'updateSalesGoal']);
-        Route::post('/settings/ide-toggle', [SettingsApiController::class, 'toggleIde']);
+        Route::get('/settings', [SettingsApiController::class, 'index'])->middleware('admin.only');
+        Route::post('/settings/sales-goal', [SettingsApiController::class, 'updateSalesGoal'])->middleware('admin.only');
+        Route::post('/settings/ide-toggle', [SettingsApiController::class, 'toggleIde'])->middleware('admin.only');
 
-        Route::get('/finance', [FinanceApiController::class, 'index']);
-        Route::post('/finance/installments', [FinanceApiController::class, 'storeInstallment']);
-        Route::delete('/finance/installments/{installment}', [FinanceApiController::class, 'destroyInstallment']);
-        Route::post('/finance/sales/{type}/{id}/installment', [FinanceApiController::class, 'updateInstallment']);
-        Route::post('/finance/sales/transaction/{id}/to-invoice', [FinanceApiController::class, 'updateToInvoice']);
-        Route::post('/finance/sales/project/{id}/to-invoice', [FinanceApiController::class, 'updateProjectToInvoice']);
-        Route::post('/finance/sales/bulk-invoice', [FinanceApiController::class, 'bulkToInvoice']);
-        Route::post('/finance/sales/bulk-uninvoice', [FinanceApiController::class, 'bulkUninvoice']);
+        Route::get('/finance', [FinanceApiController::class, 'index'])->middleware('admin.only');
+        Route::post('/finance/installments', [FinanceApiController::class, 'storeInstallment'])->middleware('admin.only');
+        Route::delete('/finance/installments/{installment}', [FinanceApiController::class, 'destroyInstallment'])->middleware('admin.only');
+        Route::post('/finance/sales/{type}/{id}/installment', [FinanceApiController::class, 'updateInstallment'])->middleware('admin.only');
+        Route::post('/finance/sales/transaction/{id}/to-invoice', [FinanceApiController::class, 'updateToInvoice'])->middleware('admin.only');
+        Route::post('/finance/sales/project/{id}/to-invoice', [FinanceApiController::class, 'updateProjectToInvoice'])->middleware('admin.only');
+        Route::post('/finance/sales/bulk-invoice', [FinanceApiController::class, 'bulkToInvoice'])->middleware('admin.only');
+        Route::post('/finance/sales/bulk-uninvoice', [FinanceApiController::class, 'bulkUninvoice'])->middleware('admin.only');
 
-        Route::get('/interventions', [InterventionApiController::class, 'index']);
-        Route::post('/interventions', [InterventionApiController::class, 'store']);
-        Route::post('/interventions/{intervention}/pause', [InterventionApiController::class, 'pause']);
-        Route::post('/interventions/{intervention}/resume', [InterventionApiController::class, 'resume']);
-        Route::post('/interventions/{intervention}/finish', [InterventionApiController::class, 'finish']);
+        Route::get('/interventions', [InterventionApiController::class, 'index'])->middleware('admin.only');
+        Route::post('/interventions', [InterventionApiController::class, 'store'])->middleware('admin.only');
+        Route::post('/interventions/{intervention}/pause', [InterventionApiController::class, 'pause'])->middleware('admin.only');
+        Route::post('/interventions/{intervention}/resume', [InterventionApiController::class, 'resume'])->middleware('admin.only');
+        Route::post('/interventions/{intervention}/finish', [InterventionApiController::class, 'finish'])->middleware('admin.only');
 
-        Route::get('/wallets', [WalletApiController::class, 'index']);
-        Route::post('/wallets/transactions', [WalletApiController::class, 'storeTransaction']);
-        Route::delete('/wallets/transactions/{transaction}', [WalletApiController::class, 'destroyTransaction']);
-        Route::post('/wallets/packs', [WalletApiController::class, 'storePack']);
+        Route::get('/wallets', [WalletApiController::class, 'index'])->middleware('admin.only');
+        Route::post('/wallets/transactions', [WalletApiController::class, 'storeTransaction'])->middleware('admin.only');
+        Route::delete('/wallets/transactions/{transaction}', [WalletApiController::class, 'destroyTransaction'])->middleware('admin.only');
+        Route::post('/wallets/packs', [WalletApiController::class, 'storePack'])->middleware('admin.only');
     });
 });

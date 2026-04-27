@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
@@ -63,6 +64,7 @@ class AuthController extends Controller
             'token' => $token,
             'token_type' => 'Bearer',
             'user' => new UserResource($user),
+            'requires_password_change' => (bool) $user->must_change_password,
         ], 'Sessão iniciada com sucesso.');
     }
 
@@ -78,5 +80,21 @@ class AuthController extends Controller
         $request->user()->currentAccessToken()?->delete();
 
         return $this->success([], 'Sessão terminada com sucesso.');
+    }
+
+    public function changePassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'password' => ['required', Password::defaults(), 'confirmed'],
+        ]);
+
+        $request->user()->update([
+            'password' => $validated['password'],
+            'must_change_password' => false,
+        ]);
+
+        return $this->success([
+            'user' => new UserResource($request->user()->fresh()),
+        ], 'Senha atualizada com sucesso.');
     }
 }

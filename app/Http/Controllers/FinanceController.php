@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Invoice;
 use App\Models\Installment;
+use App\Models\Invoice;
 use App\Models\Project;
 use App\Models\Quote;
 use App\Models\WalletTransaction;
@@ -71,7 +71,7 @@ class FinanceController extends Controller
                 $description = $transaction->description ?? $transaction->product?->name ?? '—';
 
                 if ($transaction->packItem?->hours) {
-                    $description .= ' • ' . $transaction->packItem->hours . 'h';
+                    $description .= ' • '.$transaction->packItem->hours.'h';
                 }
 
                 return [
@@ -107,14 +107,14 @@ class FinanceController extends Controller
             ->merge($productSales)
             ->sortByDesc('sort_at')
             ->values()
-            ->map(fn($item) => Arr::except($item, ['sort_at']))
+            ->map(fn ($item) => Arr::except($item, ['sort_at']))
             ->toArray();
 
         $projects = Project::with('client:id,name')
             ->where('status', '!=', 'cancelado')
             ->orderBy('name')
             ->get(['id', 'client_id', 'name', 'status'])
-            ->map(fn($project) => [
+            ->map(fn ($project) => [
                 'id' => $project->id,
                 'name' => $project->name,
                 'status' => $project->status,
@@ -127,7 +127,7 @@ class FinanceController extends Controller
             ->orderByDesc('paid_at')
             ->take(200)
             ->get()
-            ->map(fn($installment) => [
+            ->map(fn ($installment) => [
                 'id' => $installment->id,
                 'project_id' => $installment->project_id,
                 'project' => $installment->project?->name ?? '—',
@@ -145,7 +145,7 @@ class FinanceController extends Controller
             ->orderByDesc('issued_at')
             ->take(500)
             ->get(['id', 'project_id', 'client_id', 'number', 'total', 'status', 'issued_at'])
-            ->map(fn($invoice) => [
+            ->map(fn ($invoice) => [
                 'id' => $invoice->id,
                 'project_id' => $invoice->project_id,
                 'client_id' => $invoice->client_id,
@@ -179,8 +179,8 @@ class FinanceController extends Controller
         if ($data['invoice_id']) {
             $invoice = Invoice::findOrFail($data['invoice_id']);
             $sameClient = (int) $invoice->client_id === (int) $project->client_id;
-            $sameProject = !$invoice->project_id || (int) $invoice->project_id === (int) $project->id;
-            if (!$sameClient || !$sameProject) {
+            $sameProject = ! $invoice->project_id || (int) $invoice->project_id === (int) $project->id;
+            if (! $sameClient || ! $sameProject) {
                 return back()->withErrors([
                     'invoice_id' => 'A fatura selecionada nao corresponde ao projeto ou cliente.',
                 ]);
@@ -253,8 +253,8 @@ class FinanceController extends Controller
         $transaction = WalletTransaction::with('wallet')->findOrFail($id);
         $shouldInvoice = (bool) $data['to_invoice'];
 
-        if ($shouldInvoice && !$transaction->invoice_id) {
-            if (!$transaction->wallet?->client_id) {
+        if ($shouldInvoice && ! $transaction->invoice_id) {
+            if (! $transaction->wallet?->client_id) {
                 return back()->withErrors([
                     'to_invoice' => 'Nao foi possivel encontrar o cliente para faturar.',
                 ]);
@@ -265,7 +265,7 @@ class FinanceController extends Controller
             $transaction->invoice_id = $invoice->id;
         }
 
-        if (!$shouldInvoice && $transaction->invoice_id) {
+        if (! $shouldInvoice && $transaction->invoice_id) {
             $this->removeTransactionFromInvoice($transaction);
         }
 
@@ -284,12 +284,13 @@ class FinanceController extends Controller
         $project = Project::with(['quote', 'invoice', 'invoice.items'])->findOrFail($id);
         $shouldInvoice = (bool) $data['to_invoice'];
 
-        if ($shouldInvoice && !$project->invoice) {
+        if ($shouldInvoice && ! $project->invoice) {
             $this->createInvoiceForProject($project);
+
             return back();
         }
 
-        if (!$shouldInvoice && $project->invoice) {
+        if (! $shouldInvoice && $project->invoice) {
             $this->removeProjectFromInvoice($project);
         }
 
@@ -353,7 +354,7 @@ class FinanceController extends Controller
 
         $clientIds = collect([])
             ->merge($projects->pluck('client_id'))
-            ->merge($transactions->map(fn($transaction) => $transaction->wallet?->client_id))
+            ->merge($transactions->map(fn ($transaction) => $transaction->wallet?->client_id))
             ->filter()
             ->unique();
 
@@ -385,7 +386,7 @@ class FinanceController extends Controller
             $targetInvoice = $this->createInvoiceForClient((int) $clientIds->first());
         }
 
-        if (!$targetInvoice) {
+        if (! $targetInvoice) {
             return back()->withErrors([
                 'bulk' => 'Nao foi possivel criar a fatura.',
             ]);
@@ -396,11 +397,11 @@ class FinanceController extends Controller
                 continue;
             }
 
-            if (!$transaction->wallet?->client_id) {
+            if (! $transaction->wallet?->client_id) {
                 continue;
             }
 
-            if (!$transaction->invoice_id) {
+            if (! $transaction->invoice_id) {
                 $this->addTransactionToInvoice($targetInvoice, $transaction);
             }
         }
@@ -480,9 +481,10 @@ class FinanceController extends Controller
 
     private function removeTransactionFromInvoice(WalletTransaction $transaction): void
     {
-        if (!$transaction->invoice_id) {
+        if (! $transaction->invoice_id) {
             $transaction->to_invoice = false;
             $transaction->save();
+
             return;
         }
 
@@ -521,7 +523,7 @@ class FinanceController extends Controller
 
     private function removeProjectFromInvoice(Project $project): void
     {
-        if (!$project->invoice) {
+        if (! $project->invoice) {
             return;
         }
 
@@ -550,7 +552,7 @@ class FinanceController extends Controller
 
     private function calculateQuoteTotal(?Quote $quote): float
     {
-        if (!$quote) {
+        if (! $quote) {
             return 0;
         }
 

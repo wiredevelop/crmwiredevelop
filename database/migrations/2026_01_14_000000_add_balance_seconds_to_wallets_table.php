@@ -5,14 +5,15 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
-        if (!Schema::hasTable('wallets')) {
+        if (! Schema::hasTable('wallets')) {
             return;
         }
 
-        if (!Schema::hasColumn('wallets', 'balance_seconds')) {
+        if (! Schema::hasColumn('wallets', 'balance_seconds')) {
             Schema::table('wallets', function (Blueprint $table) {
                 $table->bigInteger('balance_seconds')->default(0)->after('client_id');
             });
@@ -27,7 +28,7 @@ return new class extends Migration {
 
     public function down(): void
     {
-        if (!Schema::hasTable('wallets')) {
+        if (! Schema::hasTable('wallets')) {
             return;
         }
 

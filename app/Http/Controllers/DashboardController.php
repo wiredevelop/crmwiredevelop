@@ -2,39 +2,48 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Models\Client;
-use App\Models\Invoice;
 use App\Models\Installment;
+use App\Models\Invoice;
 use App\Models\Project;
 use App\Models\Quote;
 use App\Models\Setting;
-use Illuminate\Http\Request;
+use App\Models\WalletTransaction;
+use Illuminate\Support\Arr;
 use Inertia\Inertia;
 
 class DashboardController extends Controller
 {
+    use InteractsWithClientPortalUsers;
+
     public function index()
     {
+        $isClientUser = $this->isClientUser();
+
+        $clientsQuery = $this->scopeClients(Client::query());
+        $projectsQuery = $this->scopeByClient(Project::query()->where('is_hidden', false));
+        $invoicesQuery = $this->scopeByClient(Invoice::query());
+
         $stats = [
-            'total_clients' => Client::count(),
-            'active_projects' => Project::where('status', '!=', 'concluido')
+            'total_clients' => $clientsQuery->count(),
+            'active_projects' => (clone $projectsQuery)->where('status', '!=', 'concluido')
                 ->where('status', '!=', 'cancelado')
                 ->count(),
-            'completed_projects' => Project::where('status', 'concluido')->count(),
-            'total_invoices' => Invoice::count(),
+            'completed_projects' => (clone $projectsQuery)->where('status', 'concluido')->count(),
+            'total_invoices' => $invoicesQuery->count(),
 
-            // RECEITAS
-            'paid_amount' => Invoice::where('status', 'pago')->sum('total'),
-            'pending_amount' => Invoice::where('status', 'pendente')->sum('total'),
-            'invoiced_amount' => Invoice::sum('total'),
+            'paid_amount' => (clone $invoicesQuery)->where('status', 'pago')->sum('total'),
+            'pending_amount' => (clone $invoicesQuery)->where('status', 'pendente')->sum('total'),
+            'invoiced_amount' => (clone $invoicesQuery)->sum('total'),
 
-            // ESTE MÊS
-            'paid_this_month' => Invoice::whereMonth('paid_at', now()->month)
+            'paid_this_month' => (clone $invoicesQuery)->whereMonth('paid_at', now()->month)
                 ->whereYear('paid_at', now()->year)
                 ->sum('total'),
 
-            'new_clients_month' => Client::whereMonth('created_at', now()->month)->count(),
-            'new_projects_month' => Project::whereMonth('created_at', now()->month)->count(),
+            'new_clients_month' => (clone $clientsQuery)->whereMonth('created_at', now()->month)->count(),
+            'new_projects_month' => (clone $projectsQuery)->whereMonth('created_at', now()->month)->count(),
+            'pending_values' => $this->pendingValuesTotal(),
         ];
 
         $salesGoalValue = Setting::where('key', 'sales_goal_year')->value('value');
@@ -44,7 +53,7 @@ class DashboardController extends Controller
         $salesBreakdown = null;
         $salesBreakdownDetails = null;
 
-        if ($salesGoal && $salesGoal > 0) {
+        if (! $isClientUser && $salesGoal && $salesGoal > 0) {
             $paidInvoicesQuery = Invoice::query()
                 ->leftJoin('projects', 'projects.id', '=', 'invoices.project_id')
                 ->leftJoin('quotes', 'quotes.project_id', '=', 'projects.id')
@@ -119,7 +128,7 @@ class DashboardController extends Controller
                     ->with(['project:id,name', 'client:id,name'])
                     ->orderByDesc('paid_at')
                     ->get()
-                    ->map(fn($installment) => [
+                    ->map(fn ($installment) => [
                         'id' => $installment->id,
                         'project' => $installment->project?->name ?? '—',
                         'client' => $installment->client?->name ?? '—',
@@ -141,6 +150,7 @@ class DashboardController extends Controller
                     ->get()
                     ->map(function ($quote) {
                         $amount = (float) ($quote->price_development ?? 0) * ((float) ($quote->adjudication_percent ?? 0) / 100);
+
                         return [
                             'id' => $quote->id,
                             'project' => $quote->project_name,
@@ -153,31 +163,178 @@ class DashboardController extends Controller
             ];
         }
 
+        $sales = $isClientUser ? $this->clientSales() : [];
+        $installments = $isClientUser ? $this->clientInstallments() : [];
+        $registeredInvoices = $isClientUser
+            ? $this->scopeByClient(Invoice::with(['client', 'project']))
+                ->orderByDesc('issued_at')
+                ->get()
+            : [];
+
         return Inertia::render('Dashboard', [
+            'isClientUser' => $isClientUser,
             'stats' => $stats,
             'salesGoal' => $salesGoal,
             'salesProgress' => $salesProgress,
             'salesAchieved' => $salesAchieved,
             'salesBreakdown' => $salesBreakdown,
             'salesBreakdownDetails' => $salesBreakdownDetails,
+            'sales' => $sales,
+            'installments' => $installments,
+            'registeredInvoices' => $registeredInvoices,
 
-            'recentClients' => Client::latest()->take(5)->get(),
+            'recentClients' => $this->scopeClients(Client::query())->latest()->take(5)->get(),
 
-            'recentProjects' => Project::with('client')
+            'recentProjects' => $this->scopeByClient(Project::with('client')->where('is_hidden', false))
                 ->latest()
                 ->take(5)
                 ->get(),
 
-            'recentInvoices' => Invoice::with(['client', 'project'])
+            'recentInvoices' => $this->scopeByClient(Invoice::with(['client', 'project']))
                 ->latest()
                 ->take(5)
                 ->get(),
 
-            'pendingInvoices' => Invoice::with('client')
+            'pendingInvoices' => $this->scopeByClient(Invoice::with('client'))
                 ->where('status', 'pendente')
                 ->orderBy('due_at')
                 ->take(5)
                 ->get(),
         ]);
+    }
+
+    private function clientSales(): array
+    {
+        $projectSales = $this->scopeByClient(Project::with([
+            'client:id,name',
+            'quote:id,project_id,price_development,price_domain_first_year,price_hosting_first_year,price_maintenance_monthly,include_domain,include_hosting',
+            'invoice:id,project_id,total,status,issued_at,created_at',
+        ]))
+            ->where('status', 'concluido')
+            ->orderByDesc('updated_at')
+            ->get()
+            ->map(function ($project) {
+                $invoice = $project->invoice;
+                $date = $invoice?->issued_at ?? $project->updated_at;
+                $amount = $invoice?->total ?? $this->calculateQuoteTotal($project->quote);
+
+                return [
+                    'id' => $project->id,
+                    'source' => 'project',
+                    'type' => 'Projeto',
+                    'client_id' => $project->client_id,
+                    'client' => $project->client?->name ?? '—',
+                    'description' => $project->name ?? '—',
+                    'amount' => (float) $amount,
+                    'date' => $date?->toDateString(),
+                    'status' => $invoice?->status ?? 'pendente',
+                    'invoiced' => (bool) $invoice,
+                    'to_invoice' => (bool) $invoice,
+                    'invoice_id' => $invoice?->id,
+                    'invoice_status' => $invoice?->status,
+                    'sort_at' => $date?->timestamp ?? 0,
+                ];
+            })
+            ->toBase();
+
+        $productSales = WalletTransaction::with([
+            'wallet.client:id,name',
+            'product:id,name,type',
+            'packItem:id,hours',
+            'intervention:id,type,notes,finish_notes,total_seconds,hourly_rate,is_pack',
+            'invoice:id,status',
+        ])
+            ->whereHas('wallet', fn ($query) => $query->where('client_id', $this->currentClientId()))
+            ->where(function ($query) {
+                $query->where('type', 'purchase')
+                    ->orWhere(function ($subQuery) {
+                        $subQuery->where('type', 'usage')
+                            ->whereNotNull('intervention_id');
+                    });
+            })
+            ->orderByDesc('transaction_at')
+            ->get()
+            ->map(function ($transaction) {
+                $description = $transaction->description ?? $transaction->product?->name ?? '—';
+
+                if ($transaction->packItem?->hours) {
+                    $description .= ' • '.$transaction->packItem->hours.'h';
+                }
+
+                return [
+                    'id' => $transaction->id,
+                    'source' => 'transaction',
+                    'type' => $transaction->intervention_id
+                        ? 'Intervenção'
+                        : ($transaction->product?->type === 'pack' ? 'Pack' : 'Produto'),
+                    'client_id' => $transaction->wallet?->client_id,
+                    'client' => $transaction->wallet?->client?->name ?? '—',
+                    'description' => $description,
+                    'amount' => (float) ($transaction->amount ?? 0),
+                    'date' => $transaction->transaction_at?->toDateString(),
+                    'status' => $transaction->type,
+                    'is_installment' => (bool) $transaction->is_installment,
+                    'installment_count' => $transaction->installment_count,
+                    'to_invoice' => (bool) $transaction->to_invoice,
+                    'invoice_id' => $transaction->invoice_id,
+                    'invoice_status' => $transaction->invoice?->status,
+                    'sort_at' => $transaction->transaction_at?->timestamp ?? 0,
+                ];
+            })
+            ->filter(fn ($item) => (float) ($item['amount'] ?? 0) > 0)
+            ->toBase();
+
+        return $projectSales
+            ->merge($productSales)
+            ->sortByDesc('sort_at')
+            ->values()
+            ->map(fn ($item) => Arr::except($item, ['sort_at']))
+            ->toArray();
+    }
+
+    private function clientInstallments(): array
+    {
+        return $this->scopeByClient(Installment::with(['project:id,name', 'client:id,name', 'invoice:id,number']))
+            ->orderByDesc('paid_at')
+            ->get()
+            ->map(fn ($installment) => [
+                'id' => $installment->id,
+                'project_id' => $installment->project_id,
+                'project' => $installment->project?->name ?? '—',
+                'client_id' => $installment->client_id,
+                'client' => $installment->client?->name ?? '—',
+                'invoice_id' => $installment->invoice_id,
+                'invoice' => $installment->invoice?->number ?? '—',
+                'amount' => (float) $installment->amount,
+                'note' => $installment->note,
+                'paid_at' => $installment->paid_at?->toDateString(),
+            ])
+            ->toArray();
+    }
+
+    private function calculateQuoteTotal(?Quote $quote): float
+    {
+        if (! $quote) {
+            return 0;
+        }
+
+        return (float) ($quote->price_development ?? 0)
+            + (float) ($quote->include_domain ? ($quote->price_domain_first_year ?? 0) : 0)
+            + (float) ($quote->include_hosting ? ($quote->price_hosting_first_year ?? 0) : 0)
+            + (float) ($quote->price_maintenance_monthly ?? 0);
+    }
+
+    private function pendingValuesTotal(): float
+    {
+        return $this->scopeByClient(Project::with(['quote'])->withSum('installments', 'amount')->where('is_hidden', false))
+            ->whereNotIn('status', ['concluido', 'cancelado'])
+            ->get()
+            ->sum(function (Project $project) {
+                $baseAmount = (float) ($project->quote?->price_development ?? 0);
+                $adjudicationValue = $baseAmount * ((float) ($project->quote?->adjudication_percent ?? 0) / 100);
+                $installmentsTotal = (float) ($project->installments_sum_amount ?? 0);
+
+                return max(0, $baseAmount - $adjudicationValue - $installmentsTotal);
+            });
     }
 }

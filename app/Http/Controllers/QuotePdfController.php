@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Quote;
 use App\Support\CompanySettings;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\Process\Process;
 
 class QuotePdfController extends Controller
@@ -24,7 +23,7 @@ class QuotePdfController extends Controller
         $tmpHtml = storage_path("app/tmp/quote_{$quote->id}.html");
         $tmpPdf = storage_path("app/tmp/quote_{$quote->id}.pdf");
 
-        if (!is_dir(storage_path('app/tmp'))) {
+        if (! is_dir(storage_path('app/tmp'))) {
             mkdir(storage_path('app/tmp'), 0755, true);
         }
 
@@ -35,13 +34,13 @@ class QuotePdfController extends Controller
             'node',
             '/var/www/puppeteer-pdf/render-quote.js',
             $tmpHtml,
-            $tmpPdf
+            $tmpPdf,
         ]);
 
         $process->setTimeout(60);
         $process->run();
 
-        if (!$process->isSuccessful()) {
+        if (! $process->isSuccessful()) {
             throw new \RuntimeException($process->getErrorOutput());
         }
 

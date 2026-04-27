@@ -4,6 +4,7 @@ import { ref } from 'vue'
 
 const user = usePage().props.auth?.user
 const sidebarOpen = ref(false)
+const isClientUser = user?.role === 'client'
 </script>
 
 <template>
@@ -25,11 +26,19 @@ const sidebarOpen = ref(false)
 
                 <nav class="flex-1 px-4 py-6 space-y-1">
                     <Link href="/dashboard" class="block px-4 py-2 rounded hover:bg-white/10">Dashboard</Link>
-                    <Link href="/interventions" class="block px-4 py-2 rounded hover:bg-white/10">Intervenções</Link>
-                    <Link href="/clients" class="block px-4 py-2 rounded hover:bg-white/10">Clientes</Link>
+                    <Link :href="isClientUser ? '/objects' : '/clients'" class="block px-4 py-2 rounded hover:bg-white/10">
+                        {{ isClientUser ? 'Objetos' : 'Clientes' }}
+                    </Link>
                     <Link href="/projects" class="block px-4 py-2 rounded hover:bg-white/10">Projetos</Link>
-                    <Link href="/finance" class="block px-4 py-2 rounded hover:bg-white/10">Financeiro</Link>
-                    <Link href="/settings" class="block px-4 py-2 rounded hover:bg-white/10">Definições</Link>
+                    <template v-if="isClientUser">
+                        <Link href="/wallet" class="block px-4 py-2 rounded hover:bg-white/10">Carteira</Link>
+                        <Link href="/invoices" class="block px-4 py-2 rounded hover:bg-white/10">Documentos</Link>
+                    </template>
+                    <template v-else>
+                        <Link href="/interventions" class="block px-4 py-2 rounded hover:bg-white/10">Intervenções</Link>
+                        <Link href="/finance" class="block px-4 py-2 rounded hover:bg-white/10">Financeiro</Link>
+                        <Link href="/settings" class="block px-4 py-2 rounded hover:bg-white/10">Definições</Link>
+                    </template>
                 </nav>
             </aside>
 

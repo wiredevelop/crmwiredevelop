@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\Concerns\RespondsWithJson;
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\InvoiceResource;
 use App\Models\Invoice;
@@ -15,11 +16,12 @@ use Illuminate\Support\Facades\DB;
 
 class InvoiceApiController extends Controller
 {
+    use InteractsWithClientPortalUsers;
     use RespondsWithJson;
 
     public function index(Request $request): JsonResponse
     {
-        $query = Invoice::with(['client', 'project']);
+        $query = $this->scopeByClient(Invoice::with(['client', 'project']));
 
         if ($request->client) {
             $query->where('client_id', $request->client);
@@ -66,6 +68,8 @@ class InvoiceApiController extends Controller
 
     public function show(Invoice $invoice): JsonResponse
     {
+        $this->ensureInvoiceOwnership($invoice);
+
         $invoice->load(['client', 'project', 'items', 'installments']);
 
         return $this->success([
@@ -75,6 +79,9 @@ class InvoiceApiController extends Controller
 
     public function update(Request $request, Invoice $invoice): JsonResponse
     {
+        $this->ensureInvoiceOwnership($invoice);
+        $this->abortIfClientUser();
+
         $data = $request->validate([
             'payment_method' => ['nullable', 'string', 'max:255'],
             'payment_account' => ['nullable', 'string', 'max:255'],
@@ -118,6 +125,8 @@ class InvoiceApiController extends Controller
 
     public function pdf(Invoice $invoice)
     {
+        $this->ensureInvoiceOwnership($invoice);
+
         $invoice->load(['client', 'project.quote', 'walletTransactions.product', 'walletTransactions.packItem', 'walletTransactions.intervention', 'items']);
 
         $pdf = Pdf::loadView('pdf.invoice', [
@@ -128,12 +137,14 @@ class InvoiceApiController extends Controller
 
         return response()->make($pdf->output(), 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="Fatura-' . $invoice->number . '.pdf"',
+            'Content-Disposition' => 'inline; filename="Fatura-'.$invoice->number.'.pdf"',
         ]);
     }
 
     public function download(Invoice $invoice)
     {
+        $this->ensureInvoiceOwnership($invoice);
+
         $invoice->load(['client', 'project', 'walletTransactions.product', 'walletTransactions.packItem', 'walletTransactions.intervention', 'items']);
 
         $pdf = Pdf::loadView('pdf.invoice', [
@@ -143,12 +154,15 @@ class InvoiceApiController extends Controller
 
         return response()->make($pdf->stream(), 200, [
             'Content-Type' => 'application/pdf',
-            'Content-Disposition' => 'inline; filename="Fatura-' . $invoice->number . '.pdf"',
+            'Content-Disposition' => 'inline; filename="Fatura-'.$invoice->number.'.pdf"',
         ]);
     }
 
     public function markPaid(Invoice $invoice): JsonResponse
     {
+        $this->ensureInvoiceOwnership($invoice);
+        $this->abortIfClientUser();
+
         $invoice->update([
             'status' => 'pago',
             'paid_at' => now(),
@@ -161,6 +175,9 @@ class InvoiceApiController extends Controller
 
     public function markPending(Invoice $invoice): JsonResponse
     {
+        $this->ensureInvoiceOwnership($invoice);
+        $this->abortIfClientUser();
+
         $invoice->update([
             'status' => 'pendente',
             'paid_at' => null,
@@ -173,6 +190,9 @@ class InvoiceApiController extends Controller
 
     public function uninvoice(Invoice $invoice): JsonResponse
     {
+        $this->ensureInvoiceOwnership($invoice);
+        $this->abortIfClientUser();
+
         if ($invoice->status === 'pago') {
             return $this->error('Nao podes desfaturar uma fatura paga.', ['uninvoice' => ['Nao podes desfaturar uma fatura paga.']], 422);
         }

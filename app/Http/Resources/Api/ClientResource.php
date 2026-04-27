@@ -28,6 +28,10 @@ class ClientResource extends JsonResource
                 $this->relationLoaded('wallet') && $this->wallet,
                 fn () => new WalletResource($this->wallet)
             ),
+            'user' => $this->when(
+                $this->relationLoaded('user') && $this->user,
+                fn () => new UserResource($this->user)
+            ),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

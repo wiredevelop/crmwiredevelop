@@ -35,10 +35,10 @@ class InterventionApiController extends Controller
 
         $selectedClientId = $request->query('client_id');
         $selectedTab = $request->query('tab');
-        if (!in_array($selectedTab, ['pack', 'no-pack'], true)) {
+        if (! in_array($selectedTab, ['pack', 'no-pack'], true)) {
             $selectedTab = null;
         }
-        if ($selectedClientId && !$clients->contains('id', (int) $selectedClientId)) {
+        if ($selectedClientId && ! $clients->contains('id', (int) $selectedClientId)) {
             $selectedClientId = null;
         }
 
@@ -106,7 +106,7 @@ class InterventionApiController extends Controller
         $isPack = $data['is_pack'] ?? true;
         $hourlyRate = $data['hourly_rate'] ?? null;
 
-        if (!$isPack && ($hourlyRate === null || (float) $hourlyRate <= 0)) {
+        if (! $isPack && ($hourlyRate === null || (float) $hourlyRate <= 0)) {
             return $this->error('Indica o valor/hora.', ['hourly_rate' => ['Indica o valor/hora.']], 422);
         }
 
@@ -120,7 +120,7 @@ class InterventionApiController extends Controller
             'started_at' => now(),
         ]);
 
-        if (!$isPack && $hourlyRate !== null) {
+        if (! $isPack && $hourlyRate !== null) {
             Client::where('id', $data['client_id'])->update(['hourly_rate' => $hourlyRate]);
         }
 
@@ -136,12 +136,13 @@ class InterventionApiController extends Controller
         }
 
         $intervention->update(['status' => 'paused', 'paused_at' => now()]);
+
         return $this->success(['intervention' => new InterventionResource($intervention->fresh('client'))], 'Intervenção em pausa.');
     }
 
     public function resume(Intervention $intervention): JsonResponse
     {
-        if ($intervention->status !== 'paused' || !$intervention->paused_at) {
+        if ($intervention->status !== 'paused' || ! $intervention->paused_at) {
             return $this->error('Só podes retomar intervenções em pausa.', [], 422);
         }
 
@@ -167,12 +168,12 @@ class InterventionApiController extends Controller
             return $this->error('Intervenção já concluída.', [], 422);
         }
 
-        if (!empty($data['ended_at']) && !empty($data['duration_minutes'])) {
+        if (! empty($data['ended_at']) && ! empty($data['duration_minutes'])) {
             return $this->error('Indica apenas a hora de fim ou a duração.', ['ended_at' => ['Indica apenas a hora de fim ou a duração.']], 422);
         }
 
         $now = now();
-        $endAtInput = !empty($data['ended_at']) ? Carbon::parse($data['ended_at']) : null;
+        $endAtInput = ! empty($data['ended_at']) ? Carbon::parse($data['ended_at']) : null;
         $durationMinutes = isset($data['duration_minutes']) ? (int) $data['duration_minutes'] : null;
 
         if ($endAtInput && $intervention->started_at && $endAtInput->lessThan($intervention->started_at)) {
@@ -219,7 +220,7 @@ class InterventionApiController extends Controller
                     'type' => 'usage',
                     'seconds' => -$seconds,
                     'amount' => null,
-                    'description' => 'Intervenção: ' . $intervention->type,
+                    'description' => 'Intervenção: '.$intervention->type,
                     'intervention_id' => $intervention->id,
                     'transaction_at' => $endAt,
                 ]);
@@ -236,7 +237,7 @@ class InterventionApiController extends Controller
                     'type' => 'purchase',
                     'seconds' => null,
                     'amount' => $amount,
-                    'description' => 'Intervenção: ' . $intervention->type,
+                    'description' => 'Intervenção: '.$intervention->type,
                     'intervention_id' => $intervention->id,
                     'transaction_at' => $endAt,
                 ]);

@@ -5,14 +5,15 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
-        if (!Schema::hasTable('invoices')) {
+        if (! Schema::hasTable('invoices')) {
             return;
         }
 
-        if (!Schema::hasColumn('invoices', 'project_id')) {
+        if (! Schema::hasColumn('invoices', 'project_id')) {
             Schema::table('invoices', function (Blueprint $table) {
                 $table->unsignedBigInteger('project_id')->nullable()->after('client_id');
             });
@@ -23,12 +24,12 @@ return new class extends Migration {
                 "select constraint_name from information_schema.key_column_usage where table_schema = database() and table_name = 'invoices' and column_name = 'project_id' and referenced_table_name = 'projects' limit 1"
             );
 
-            if (!$fkExists) {
+            if (! $fkExists) {
                 Schema::table('invoices', function (Blueprint $table) {
                     $table->foreign('project_id')
-                          ->references('id')
-                          ->on('projects')
-                          ->nullOnDelete();
+                        ->references('id')
+                        ->on('projects')
+                        ->nullOnDelete();
                 });
             }
         }
@@ -36,7 +37,7 @@ return new class extends Migration {
 
     public function down(): void
     {
-        if (!Schema::hasTable('invoices') || !Schema::hasColumn('invoices', 'project_id')) {
+        if (! Schema::hasTable('invoices') || ! Schema::hasColumn('invoices', 'project_id')) {
             return;
         }
 

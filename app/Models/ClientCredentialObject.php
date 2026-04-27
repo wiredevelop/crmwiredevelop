@@ -11,6 +11,7 @@ class ClientCredentialObject extends Model
 
     protected $fillable = [
         'client_id',
+        'project_id',
         'name',
         'notes',
     ];
@@ -18,6 +19,11 @@ class ClientCredentialObject extends Model
     public function client()
     {
         return $this->belongsTo(Client::class);
+    }
+
+    public function project()
+    {
+        return $this->belongsTo(Project::class);
     }
 
     public function credentials()

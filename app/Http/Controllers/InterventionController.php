@@ -43,16 +43,16 @@ class InterventionController extends Controller
             });
         $selectedClientId = $request->query('client_id');
         $selectedTab = $request->query('tab');
-        if (!in_array($selectedTab, ['pack', 'no-pack'], true)) {
+        if (! in_array($selectedTab, ['pack', 'no-pack'], true)) {
             $selectedTab = null;
         }
 
-        if ($selectedClientId && !$clients->contains('id', (int) $selectedClientId)) {
+        if ($selectedClientId && ! $clients->contains('id', (int) $selectedClientId)) {
             $selectedClientId = null;
         }
 
         $interventions = Intervention::with('client:id,name,company')
-            ->when($selectedClientId, fn($q) => $q->where('client_id', $selectedClientId))
+            ->when($selectedClientId, fn ($q) => $q->where('client_id', $selectedClientId))
             ->orderByDesc('started_at')
             ->take(50)
             ->get();
@@ -69,7 +69,7 @@ class InterventionController extends Controller
                     'pack_items' => $pack->packItems
                         ->sortBy('order')
                         ->values()
-                        ->map(fn($item) => [
+                        ->map(fn ($item) => [
                             'id' => $item->id,
                             'hours' => $item->hours,
                             'normal_price' => $item->normal_price,
@@ -131,7 +131,7 @@ class InterventionController extends Controller
         $isPack = $data['is_pack'] ?? true;
         $hourlyRate = $data['hourly_rate'] ?? null;
 
-        if (!$isPack && ($hourlyRate === null || (float) $hourlyRate <= 0)) {
+        if (! $isPack && ($hourlyRate === null || (float) $hourlyRate <= 0)) {
             return back()->withErrors([
                 'hourly_rate' => 'Indica o valor/hora.',
             ]);
@@ -147,7 +147,7 @@ class InterventionController extends Controller
             'started_at' => now(),
         ]);
 
-        if (!$isPack && $hourlyRate !== null) {
+        if (! $isPack && $hourlyRate !== null) {
             Client::where('id', $data['client_id'])
                 ->update(['hourly_rate' => $hourlyRate]);
         }
@@ -173,7 +173,7 @@ class InterventionController extends Controller
 
     public function resume(Intervention $intervention): RedirectResponse
     {
-        if ($intervention->status !== 'paused' || !$intervention->paused_at) {
+        if ($intervention->status !== 'paused' || ! $intervention->paused_at) {
             return back()->with('error', 'Só podes retomar intervenções em pausa.');
         }
 
@@ -200,14 +200,14 @@ class InterventionController extends Controller
             return back()->with('error', 'Intervenção já concluída.');
         }
 
-        if (!empty($data['ended_at']) && !empty($data['duration_minutes'])) {
+        if (! empty($data['ended_at']) && ! empty($data['duration_minutes'])) {
             return back()->withErrors([
                 'ended_at' => 'Indica apenas a hora de fim ou a duração.',
             ]);
         }
 
         $now = now();
-        $endAtInput = !empty($data['ended_at']) ? Carbon::parse($data['ended_at']) : null;
+        $endAtInput = ! empty($data['ended_at']) ? Carbon::parse($data['ended_at']) : null;
         $durationMinutes = isset($data['duration_minutes']) ? (int) $data['duration_minutes'] : null;
 
         if ($endAtInput && $intervention->started_at && $endAtInput->lessThan($intervention->started_at)) {
@@ -267,7 +267,7 @@ class InterventionController extends Controller
                     'type' => 'usage',
                     'seconds' => -$seconds,
                     'amount' => null,
-                    'description' => 'Intervenção: ' . $intervention->type,
+                    'description' => 'Intervenção: '.$intervention->type,
                     'intervention_id' => $intervention->id,
                     'transaction_at' => $endAt,
                 ]);
@@ -288,7 +288,7 @@ class InterventionController extends Controller
                     'type' => 'purchase',
                     'seconds' => null,
                     'amount' => $amount,
-                    'description' => 'Intervenção: ' . $intervention->type,
+                    'description' => 'Intervenção: '.$intervention->type,
                     'intervention_id' => $intervention->id,
                     'transaction_at' => $endAt,
                 ]);
@@ -305,14 +305,14 @@ class InterventionController extends Controller
         $intervention->loadMissing('client');
         $email = $intervention->client?->email;
 
-        if (!$email) {
+        if (! $email) {
             return;
         }
 
         try {
             Mail::to($email)->send(new InterventionStarted($intervention));
         } catch (\Throwable $e) {
-            Log::warning('Intervention start email failed: ' . $e->getMessage());
+            Log::warning('Intervention start email failed: '.$e->getMessage());
         }
     }
 
@@ -321,14 +321,14 @@ class InterventionController extends Controller
         $intervention->loadMissing('client');
         $email = $intervention->client?->email;
 
-        if (!$email) {
+        if (! $email) {
             return;
         }
 
         try {
             Mail::to($email)->send(new InterventionFinished($intervention, $totalSeconds));
         } catch (\Throwable $e) {
-            Log::warning('Intervention finish email failed: ' . $e->getMessage());
+            Log::warning('Intervention finish email failed: '.$e->getMessage());
         }
     }
 }

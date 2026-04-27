@@ -20,7 +20,7 @@ class AuthenticateDocumentToken
         }
 
         $accessToken = PersonalAccessToken::findToken($token);
-        if (!$accessToken || !$accessToken->tokenable) {
+        if (! $accessToken || ! $accessToken->tokenable) {
             return response()->json([
                 'message' => 'Token de acesso inválido.',
             ], 401);

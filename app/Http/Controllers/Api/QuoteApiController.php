@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\Concerns\RespondsWithJson;
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\QuoteResource;
 use App\Models\Installment;
@@ -10,19 +11,26 @@ use App\Models\Quote;
 use App\Support\CompanySettings;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use PhpOffice\PhpWord\IOFactory;
 use PhpOffice\PhpWord\PhpWord;
 
 class QuoteApiController extends Controller
 {
+    use InteractsWithClientPortalUsers;
     use RespondsWithJson;
 
     public function index(Request $request): JsonResponse
     {
-        $quotes = Quote::with(['project.client', 'quoteProducts'])
-            ->whereHas('project', fn ($query) => $query->whereNotIn('status', ['concluido', 'cancelado']))
+        $quotesQuery = Quote::with(['project.client', 'quoteProducts'])
+            ->whereHas('project', function ($query) {
+                $query->whereNotIn('status', ['concluido', 'cancelado']);
+                if ($this->isClientUser()) {
+                    $query->where('client_id', $this->currentClientId());
+                }
+            });
+
+        $quotes = $quotesQuery
             ->latest()
             ->paginate((int) $request->integer('per_page', 15));
 
@@ -62,6 +70,7 @@ class QuoteApiController extends Controller
 
     public function show(Quote $quote): JsonResponse
     {
+        $this->ensureQuoteOwnership($quote);
         $quote->load(['project.client', 'quoteProducts']);
 
         return $this->success([
@@ -71,6 +80,9 @@ class QuoteApiController extends Controller
 
     public function updateAdjudication(Request $request, Quote $quote): JsonResponse
     {
+        $this->ensureQuoteOwnership($quote);
+        $this->abortIfClientUser();
+
         $data = $request->validate([
             'adjudication_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
             'adjudication_paid_at' => ['nullable', 'date'],
@@ -92,6 +104,8 @@ class QuoteApiController extends Controller
 
     public function pdf(Quote $quote)
     {
+        $this->ensureQuoteOwnership($quote);
+
         return $this->generatePdf($quote);
     }
 
@@ -99,7 +113,7 @@ class QuoteApiController extends Controller
     {
         $quote->load(['project.client', 'quoteProducts']);
 
-        $phpWord = new PhpWord();
+        $phpWord = new PhpWord;
         $phpWord->setDefaultFontName('Calibri');
         $phpWord->setDefaultFontSize(11);
 

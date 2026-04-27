@@ -9,7 +9,7 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (!Schema::hasTable('projects')) {
+        if (! Schema::hasTable('projects')) {
             return;
         }
 
@@ -32,13 +32,13 @@ return new class extends Migration
 
         $existingColumns = array_filter($columnsToDrop, fn ($column) => Schema::hasColumn('projects', $column));
 
-        if (!empty($existingColumns)) {
+        if (! empty($existingColumns)) {
             Schema::table('projects', function (Blueprint $table) use ($existingColumns) {
                 $table->dropColumn($existingColumns);
             });
         }
 
-        if (!Schema::hasColumn('projects', 'quote_id')) {
+        if (! Schema::hasColumn('projects', 'quote_id')) {
             Schema::table('projects', function (Blueprint $table) {
                 $table->unsignedBigInteger('quote_id')->nullable()->after('status');
             });
@@ -49,12 +49,12 @@ return new class extends Migration
                 "select constraint_name from information_schema.key_column_usage where table_schema = database() and table_name = 'projects' and column_name = 'quote_id' and referenced_table_name = 'quotes' limit 1"
             );
 
-            if (!$fkExists) {
+            if (! $fkExists) {
                 Schema::table('projects', function (Blueprint $table) {
                     $table->foreign('quote_id')
-                          ->references('id')
-                          ->on('quotes')
-                          ->onDelete('cascade');
+                        ->references('id')
+                        ->on('quotes')
+                        ->onDelete('cascade');
                 });
             }
         }
@@ -62,52 +62,52 @@ return new class extends Migration
 
     public function down(): void
     {
-        if (!Schema::hasTable('projects')) {
+        if (! Schema::hasTable('projects')) {
             return;
         }
 
         Schema::table('projects', function (Blueprint $table) {
             // Repor colunas removidas (versão simplificada)
-            if (!Schema::hasColumn('projects', 'price')) {
+            if (! Schema::hasColumn('projects', 'price')) {
                 $table->decimal('price', 10, 2)->nullable();
             }
-            if (!Schema::hasColumn('projects', 'started_at')) {
+            if (! Schema::hasColumn('projects', 'started_at')) {
                 $table->timestamp('started_at')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'due_at')) {
+            if (! Schema::hasColumn('projects', 'due_at')) {
                 $table->timestamp('due_at')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'description_html')) {
+            if (! Schema::hasColumn('projects', 'description_html')) {
                 $table->text('description_html')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'tags')) {
+            if (! Schema::hasColumn('projects', 'tags')) {
                 $table->json('tags')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'scope')) {
+            if (! Schema::hasColumn('projects', 'scope')) {
                 $table->json('scope')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'features')) {
+            if (! Schema::hasColumn('projects', 'features')) {
                 $table->json('features')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'development_plan')) {
+            if (! Schema::hasColumn('projects', 'development_plan')) {
                 $table->json('development_plan')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'budget')) {
+            if (! Schema::hasColumn('projects', 'budget')) {
                 $table->json('budget')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'pricing_details')) {
+            if (! Schema::hasColumn('projects', 'pricing_details')) {
                 $table->json('pricing_details')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'terms')) {
+            if (! Schema::hasColumn('projects', 'terms')) {
                 $table->text('terms')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'attachments')) {
+            if (! Schema::hasColumn('projects', 'attachments')) {
                 $table->json('attachments')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'technologies')) {
+            if (! Schema::hasColumn('projects', 'technologies')) {
                 $table->string('technologies')->nullable();
             }
-            if (!Schema::hasColumn('projects', 'description')) {
+            if (! Schema::hasColumn('projects', 'description')) {
                 $table->text('description')->nullable();
             }
 

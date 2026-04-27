@@ -7,7 +7,9 @@ use Illuminate\Database\Eloquent\Model;
 class Pack extends Model
 {
     public $timestamps = false;
+
     protected $primaryKey = 'product_id';
+
     public $incrementing = false;
 
     protected $fillable = [

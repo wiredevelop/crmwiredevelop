@@ -10,7 +10,7 @@ class CompanySettings
     {
         $value = Setting::where('key', 'company_data')->value('value');
 
-        if (!$value) {
+        if (! $value) {
             return self::defaults();
         }
 
@@ -51,7 +51,7 @@ class CompanySettings
 
     private static function shouldHide($value): bool
     {
-        if (!is_string($value)) {
+        if (! is_string($value)) {
             return empty($value);
         }
 

@@ -45,7 +45,9 @@ class WireCrmApp extends StatelessWidget {
           ),
           home: controller.isReady
               ? (controller.isAuthenticated
-                    ? HomeShell(controller: controller)
+                    ? (controller.mustChangePassword
+                          ? ForcedPasswordChangeScreen(controller: controller)
+                          : HomeShell(controller: controller))
                     : LoginScreen(controller: controller))
               : const SplashScreen(),
         );

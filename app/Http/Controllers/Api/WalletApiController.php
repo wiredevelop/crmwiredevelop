@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\Concerns\RespondsWithJson;
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Http\Controllers\Controller;
+use App\Http\Resources\Api\InterventionResource;
 use App\Http\Resources\Api\WalletResource;
 use App\Http\Resources\Api\WalletTransactionResource;
 use App\Models\Client;
 use App\Models\Invoice;
+use App\Models\Intervention;
 use App\Models\Product;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
@@ -17,18 +20,40 @@ use Illuminate\Support\Facades\DB;
 
 class WalletApiController extends Controller
 {
+    use InteractsWithClientPortalUsers;
     use RespondsWithJson;
 
     public function index(Request $request): JsonResponse
     {
+        if ($this->isClientUser()) {
+            $wallet = Wallet::firstOrCreate(['client_id' => $this->currentClientId()], ['balance_seconds' => 0, 'balance_amount' => 0]);
+            $wallet->load([
+                'client',
+                'transactions' => fn ($query) => $query
+                    ->with(['product:id,name', 'packItem:id,product_id,hours,pack_price,validity_months', 'intervention:id,type,status,notes,finish_notes,is_pack,started_at,ended_at,total_seconds', 'invoice:id,number,status'])
+                    ->orderByDesc('transaction_at'),
+            ]);
+
+            $interventions = Intervention::query()
+                ->where('client_id', $this->currentClientId())
+                ->orderByDesc('started_at')
+                ->get();
+
+            return $this->success([
+                'wallet' => new WalletResource($wallet),
+                'transactions' => WalletTransactionResource::collection($wallet->transactions),
+                'interventions' => InterventionResource::collection($interventions),
+            ]);
+        }
+
         $clients = Client::orderBy('name')->get(['id', 'name', 'company']);
         $selectedClientId = $request->query('client_id');
 
-        if (!$selectedClientId && $clients->isNotEmpty()) {
+        if (! $selectedClientId && $clients->isNotEmpty()) {
             $selectedClientId = $clients->first()->id;
         }
 
-        if ($selectedClientId && !$clients->contains('id', (int) $selectedClientId)) {
+        if ($selectedClientId && ! $clients->contains('id', (int) $selectedClientId)) {
             $selectedClientId = null;
         }
 
@@ -185,7 +210,7 @@ class WalletApiController extends Controller
         $product = Product::with('packItems')->where('type', 'pack')->findOrFail($data['product_id']);
         $packItem = $product->packItems->firstWhere('id', (int) $data['pack_item_id']);
 
-        if (!$packItem) {
+        if (! $packItem) {
             return $this->error('Opção de pack inválida.', [], 422);
         }
 
@@ -194,12 +219,12 @@ class WalletApiController extends Controller
         $amount = (float) (($packItem->pack_price ?? 0) * $quantity);
 
         $wallet = Wallet::firstOrCreate(['client_id' => $data['client_id']], ['balance_seconds' => 0, 'balance_amount' => 0]);
-        $description = 'Compra de pack: ' . $product->name;
+        $description = 'Compra de pack: '.$product->name;
         if ($packItem->hours) {
-            $description .= ' - ' . $packItem->hours . 'h';
+            $description .= ' - '.$packItem->hours.'h';
         }
         if ($quantity > 1) {
-            $description .= ' (x' . $quantity . ')';
+            $description .= ' (x'.$quantity.')';
         }
 
         $transaction = WalletTransaction::create([

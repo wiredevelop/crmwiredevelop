@@ -4,8 +4,8 @@ namespace App\Http\Controllers\WebAuthn;
 
 use Illuminate\Contracts\Support\Responsable;
 use Illuminate\Http\Response;
-use Laragear\WebAuthn\Http\Requests\AssertionRequest;
 use Laragear\WebAuthn\Http\Requests\AssertedRequest;
+use Laragear\WebAuthn\Http\Requests\AssertionRequest;
 
 class PasskeyLoginController
 {

@@ -9,6 +9,12 @@ class ProjectResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $baseAmount = (float) ($this->quote?->price_development ?? 0);
+        $adjudicationPercent = (float) ($this->quote?->adjudication_percent ?? 0);
+        $adjudicationValue = $baseAmount * ($adjudicationPercent / 100);
+        $installmentsTotal = (float) ($this->installments_sum_amount ?? 0);
+        $remainingAmount = max(0, $baseAmount - $adjudicationValue - $installmentsTotal);
+
         return [
             'id' => $this->id,
             'client_id' => $this->client_id,
@@ -17,6 +23,10 @@ class ProjectResource extends JsonResource
             'status' => $this->status,
             'is_hidden' => (bool) $this->is_hidden,
             'quote_id' => $this->quote_id,
+            'base_amount' => $baseAmount,
+            'adjudication_value' => $adjudicationValue,
+            'installments_total' => $installmentsTotal,
+            'remaining_amount' => $remainingAmount,
             'client' => $this->when(
                 $this->relationLoaded('client') && $this->client,
                 fn () => new ClientResource($this->client)

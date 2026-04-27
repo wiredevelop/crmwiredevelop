@@ -21,9 +21,9 @@ class Budget extends Model
     ];
 
     protected $casts = [
-        'technologies'            => 'array',
-        'development_table'       => 'array',
-        'prices'                  => 'array',
+        'technologies' => 'array',
+        'development_table' => 'array',
+        'prices' => 'array',
         'development_total_hours' => 'integer',
     ];
 

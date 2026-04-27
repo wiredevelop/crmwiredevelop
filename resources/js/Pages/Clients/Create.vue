@@ -1,6 +1,7 @@
 <script setup>
 import BaseLayout from '@/Layouts/BaseLayout.vue'
 import { useForm } from '@inertiajs/vue3'
+import { watch } from 'vue'
 
 const form = useForm({
     name: '',
@@ -11,11 +12,31 @@ const form = useForm({
     address: '',
     hourly_rate: '',
     notes: '',
+    create_portal_user: false,
+    portal_email: '',
+    portal_password: '',
 })
 
 function submit() {
     form.post('/clients')
 }
+
+function generateTemporaryPassword() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+    let password = ''
+
+    for (let i = 0; i < 12; i += 1) {
+        password += chars[Math.floor(Math.random() * chars.length)]
+    }
+
+    form.portal_password = password
+}
+
+watch(() => form.email, (value) => {
+    if (!form.portal_email) {
+        form.portal_email = value
+    }
+})
 </script>
 
 <template>
@@ -65,6 +86,31 @@ function submit() {
                 <div class="mb-4">
                     <label>Notas</label>
                     <textarea v-model="form.notes" class="input"></textarea>
+                </div>
+
+                <div class="mb-6 rounded-lg border border-gray-200 p-4">
+                    <label class="flex items-center gap-2 font-medium">
+                        <input v-model="form.create_portal_user" type="checkbox" />
+                        Criar acesso para cliente
+                    </label>
+
+                    <div v-if="form.create_portal_user" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label>Email de acesso *</label>
+                            <input v-model="form.portal_email" type="email" class="input" required />
+                        </div>
+
+                        <div>
+                            <label>Senha temporária</label>
+                            <div class="flex gap-2">
+                                <input v-model="form.portal_password" class="input" placeholder="Vazio = gerar automática" />
+                                <button type="button" class="bg-gray-100 px-3 py-2 rounded border" @click="generateTemporaryPassword">
+                                    Gerar
+                                </button>
+                            </div>
+                            <p class="mt-1 text-xs text-gray-500">O cliente terá de alterar esta senha no 1º login.</p>
+                        </div>
+                    </div>
                 </div>
 
                 <button class="bg-[#015557] text-white px-4 py-2 rounded">

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\Concerns\RespondsWithJson;
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreProjectRequest;
 use App\Http\Resources\Api\ClientCredentialResource;
@@ -13,13 +14,19 @@ use App\Models\Product;
 use App\Models\Project;
 use App\Models\Quote;
 use App\Models\QuoteProduct;
+use App\Support\ProjectCredentialObjectManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class ProjectApiController extends Controller
 {
+    use InteractsWithClientPortalUsers;
     use RespondsWithJson;
+
+    public function __construct(private readonly ProjectCredentialObjectManager $objectManager)
+    {
+    }
 
     public function index(Request $request): JsonResponse
     {
@@ -28,15 +35,13 @@ class ProjectApiController extends Controller
         $status = $request->query('status');
         $currentStatus = in_array($status, $allowedStatuses, true) ? $status : null;
 
-        $projects = Project::with(['client', 'quote', 'invoice'])
-            ->where('is_hidden', false)
+        $projects = $this->scopeByClient(Project::with(['client', 'quote', 'invoice'])->withSum('installments', 'amount')->where('is_hidden', false))
             ->when($currentStatus, fn ($query) => $query->where('status', $currentStatus))
             ->latest()
             ->paginate((int) $request->integer('per_page', 15))
             ->withQueryString();
 
-        $statusCounts = Project::select('status', DB::raw('count(*) as total'))
-            ->where('is_hidden', false)
+        $statusCounts = $this->scopeByClient(Project::select('status', DB::raw('count(*) as total'))->where('is_hidden', false))
             ->groupBy('status')
             ->pluck('total', 'status');
 
@@ -49,12 +54,14 @@ class ProjectApiController extends Controller
         return $this->paginated($request, $projects, ProjectResource::collection($projects->getCollection())->resolve(), null, [
             'status_filters' => $statusFilters,
             'current_status' => $currentStatus,
-            'total_count' => Project::where('is_hidden', false)->count(),
+            'total_count' => $this->scopeByClient(Project::query()->where('is_hidden', false))->count(),
         ]);
     }
 
     public function options(): JsonResponse
     {
+        $this->abortIfClientUser();
+
         return $this->success([
             'clients' => Client::orderBy('name')->get(['id', 'name', 'company']),
             'catalog' => $this->catalog(),
@@ -65,13 +72,19 @@ class ProjectApiController extends Controller
 
     public function show(Project $project, Request $request): JsonResponse
     {
-        $project->load(['client', 'quote.quoteProducts', 'invoice', 'credentials']);
+        $this->ensureProjectOwnership($project);
+
+        $project->loadSum('installments', 'amount');
+        $project->load(['client', 'quote.quoteProducts', 'invoice']);
+        if (! $this->isClientUser()) {
+            $project->load('credentials');
+        }
 
         $data = [
             'project' => new ProjectResource($project),
         ];
 
-        if ($request->boolean('with_options')) {
+        if ($request->boolean('with_options') && ! $this->isClientUser()) {
             $data['clients'] = Client::orderBy('name')->get(['id', 'name', 'company']);
             $data['catalog'] = $this->catalog();
             $data['status_options'] = $this->statusOptions();
@@ -82,24 +95,32 @@ class ProjectApiController extends Controller
 
     public function store(StoreProjectRequest $request): JsonResponse
     {
+        $this->abortIfClientUser();
+
         $project = $this->persistProject(null, $request->validated());
 
         return $this->success([
-            'project' => new ProjectResource($project->load(['client', 'quote.quoteProducts', 'invoice'])),
+            'project' => new ProjectResource($project->loadSum('installments', 'amount')->load(['client', 'quote.quoteProducts', 'invoice'])),
         ], 'Projeto e orçamento criados com sucesso.', 201);
     }
 
     public function update(StoreProjectRequest $request, Project $project): JsonResponse
     {
+        $this->ensureProjectOwnership($project);
+        $this->abortIfClientUser();
+
         $project = $this->persistProject($project, $request->validated());
 
         return $this->success([
-            'project' => new ProjectResource($project->load(['client', 'quote.quoteProducts', 'invoice'])),
+            'project' => new ProjectResource($project->loadSum('installments', 'amount')->load(['client', 'quote.quoteProducts', 'invoice'])),
         ], 'Projeto atualizado com sucesso.');
     }
 
     public function destroy(Project $project): JsonResponse
     {
+        $this->ensureProjectOwnership($project);
+        $this->abortIfClientUser();
+
         DB::transaction(function () use ($project) {
             if ($project->invoice) {
                 $project->invoice->delete();
@@ -113,6 +134,9 @@ class ProjectApiController extends Controller
 
     public function credentials(Project $project): JsonResponse
     {
+        $this->ensureProjectOwnership($project);
+        $this->abortIfClientUser();
+
         $project->load('client');
         $credentials = $project->credentials()->latest()->get();
 
@@ -124,6 +148,9 @@ class ProjectApiController extends Controller
 
     public function storeCredential(Request $request, Project $project): JsonResponse
     {
+        $this->ensureProjectOwnership($project);
+        $this->abortIfClientUser();
+
         $data = $request->validate([
             'label' => ['required', 'string', 'max:150'],
             'username' => ['nullable', 'string', 'max:255'],
@@ -143,6 +170,8 @@ class ProjectApiController extends Controller
 
     public function destroyCredential(Project $project, ClientCredential $credential): JsonResponse
     {
+        $this->ensureProjectOwnership($project);
+        $this->abortIfClientUser();
         abort_if($credential->project_id !== $project->id, 404);
 
         $credential->delete();
@@ -160,7 +189,7 @@ class ProjectApiController extends Controller
         $hostingOtherYears = $includeHosting ? (float) ($data['price_hosting_other_years'] ?? 0) : 0;
 
         return DB::transaction(function () use ($project, $data, $includeDomain, $includeHosting, $domainFirstYear, $domainOtherYears, $hostingFirstYear, $hostingOtherYears) {
-            if (!$project) {
+            if (! $project) {
                 $project = Project::create([
                     'client_id' => $data['client_id'],
                     'name' => $data['name'],
@@ -200,6 +229,8 @@ class ProjectApiController extends Controller
                     'order' => $i,
                 ]);
             }
+
+            $this->objectManager->syncForProject($project);
 
             return $project;
         });
@@ -269,7 +300,7 @@ class ProjectApiController extends Controller
 
     private function defaultTerms(): string
     {
-        return <<<TEXT
+        return <<<'TEXT'
 • Prazo de entrega: ≈ 10–15 dias úteis
 
 • Prazo de Garantia:

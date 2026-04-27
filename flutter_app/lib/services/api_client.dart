@@ -34,6 +34,13 @@ class ApiClient {
     );
   }
 
+  Future<Map<String, dynamic>> changePassword({required String password}) {
+    return post(
+      '/auth/change-password',
+      body: {'password': password, 'password_confirmation': password},
+    );
+  }
+
   Future<Map<String, dynamic>> get(String path) => _request('GET', path);
   Future<Map<String, dynamic>> post(String path, {Object? body}) =>
       _request('POST', path, body: body);

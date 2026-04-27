@@ -37,6 +37,9 @@ class HandleInertiaRequests extends Middleware
             'flash' => [
                 'success' => $request->session()->get('success'),
                 'error' => $request->session()->get('error'),
+                'temporaryPassword' => $request->session()->get('temporaryPassword'),
+                'temporaryPasswordEmail' => $request->session()->get('temporaryPasswordEmail'),
+                'temporaryPasswordClient' => $request->session()->get('temporaryPasswordClient'),
             ],
         ];
     }

@@ -3,7 +3,7 @@ import BaseLayout from '@/Layouts/BaseLayout.vue'
 import { usePage, Link } from '@inertiajs/vue3'
 import { ref, computed } from 'vue'
 
-const { stats, recentClients, recentProjects, recentInvoices, pendingInvoices, salesGoal, salesProgress, salesAchieved, salesBreakdown, salesBreakdownDetails } = usePage().props
+const { stats, recentClients, recentProjects, recentInvoices, pendingInvoices, salesGoal, salesProgress, salesAchieved, salesBreakdown, salesBreakdownDetails, isClientUser, sales, installments, registeredInvoices } = usePage().props
 
 const currentYear = new Date().getFullYear()
 const salesProgressValue = computed(() => salesProgress ?? 0)
@@ -92,6 +92,18 @@ const clientsFiltered = computed(() =>
 const projectsFiltered = computed(() =>
     sortedAndFiltered(recentProjects, searchProjects.value)
 )
+
+const salesFiltered = computed(() =>
+    sortedAndFiltered(sales || [], searchClients.value)
+)
+
+const installmentsFiltered = computed(() =>
+    sortedAndFiltered(installments || [], searchPending.value)
+)
+
+const registeredInvoicesFiltered = computed(() =>
+    sortedAndFiltered(registeredInvoices || [], searchInvoices.value)
+)
 </script>
 
 <template>
@@ -101,15 +113,18 @@ const projectsFiltered = computed(() =>
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
             <div>
                 <h2 class="text-lg font-semibold">Atalhos rápidos</h2>
-                <p class="text-sm text-gray-500">Inicia uma intervenção com um clique.</p>
+                <p class="text-sm text-gray-500">{{ isClientUser ? 'Resumo financeiro e operacional do cliente.' : 'Inicia uma intervenção com um clique.' }}</p>
             </div>
-            <Link href="/interventions" class="bg-[#015557] text-white px-4 py-2 rounded hover:bg-[#014548]">
+            <Link v-if="!isClientUser" href="/interventions" class="bg-[#015557] text-white px-4 py-2 rounded hover:bg-[#014548]">
                 Iniciar intervenção
             </Link>
         </div>
 
         <!-- ===================== KPIs ===================== -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+        <div
+            class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8"
+            :class="isClientUser ? 'xl:grid-cols-3' : 'xl:grid-cols-4'"
+        >
 
             <div class="bg-white rounded shadow p-4">
                 <p class="text-xs text-gray-500">Clientes</p>
@@ -126,8 +141,8 @@ const projectsFiltered = computed(() =>
                 <p class="text-2xl font-semibold">{{ stats.completed_projects }}</p>
             </div>
 
-            <div class="bg-white rounded shadow p-4">
-                <p class="text-xs text-gray-500">Faturação Total</p>
+            <div v-if="!isClientUser" class="bg-white rounded shadow p-4">
+                <p class="text-xs text-gray-500">Total Recebido</p>
                 <p class="text-xl font-semibold">
                     {{ stats.paid_amount }} €
                 </p>
@@ -136,9 +151,19 @@ const projectsFiltered = computed(() =>
                 </p>
             </div>
 
+            <div v-else class="bg-white rounded shadow p-4">
+                <p class="text-xs text-gray-500">Valores Pendentes</p>
+                <p class="text-xl font-semibold text-amber-600">
+                    {{ formatAmount(stats.pending_values) }} €
+                </p>
+                <p class="text-xs text-amber-600">
+                    Soma dos valores ainda em aberto.
+                </p>
+            </div>
+
         </div>
 
-        <div class="bg-white rounded shadow p-4 mb-8">
+        <div v-if="!isClientUser" class="bg-white rounded shadow p-4 mb-8">
             <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
                 <div>
                     <h2 class="font-semibold">Meta de vendas {{ currentYear }}</h2>
@@ -165,14 +190,14 @@ const projectsFiltered = computed(() =>
                 <details class="mt-2 text-xs text-gray-500">
                     <summary class="cursor-pointer select-none text-[#015557]">Ver detalhes</summary>
                     <div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        <div>Faturas pagas: {{ formatAmount(salesBreakdownValue.paid_invoices) }} €</div>
+                        <div>Documentos pagos: {{ formatAmount(salesBreakdownValue.paid_invoices) }} €</div>
                         <div>Parcelas: {{ formatAmount(salesBreakdownValue.installments) }} €</div>
                         <div>Adjudicações: {{ formatAmount(salesBreakdownValue.adjudications) }} €</div>
                     </div>
 
                     <div class="mt-3 space-y-3">
                         <div v-if="salesBreakdownDetailsValue.paid_invoices.length">
-                            <p class="text-[11px] uppercase tracking-wide text-gray-400">Faturas pagas</p>
+                            <p class="text-[11px] uppercase tracking-wide text-gray-400">Documentos pagos</p>
                             <ul class="mt-1 space-y-1">
                                 <li v-for="item in salesBreakdownDetailsValue.paid_invoices" :key="`inv-${item.id}`">
                                     {{ item.number }} · {{ item.project || 'Sem projeto' }} · {{ formatAmount(item.amount) }} €
@@ -204,13 +229,119 @@ const projectsFiltered = computed(() =>
             <p v-else class="text-sm text-gray-500">Define uma meta anual nas definições.</p>
         </div>
 
-        <!-- ===================== FINANCEIRO ===================== -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+        <div v-if="isClientUser" class="space-y-6 mb-10">
+            <div class="bg-white rounded shadow p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h2 class="font-semibold">Vendas Registadas</h2>
+                    <span class="text-xs text-gray-500">{{ salesFiltered.length }} registo(s)</span>
+                </div>
 
-            <!-- Faturas Recentes -->
+                <input v-model="searchClients" type="text" placeholder="Pesquisar vendas..." class="mb-3 w-full border rounded px-3 py-1 text-sm">
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead>
+                            <tr class="bg-gray-50 border-b">
+                                <th class="py-2 px-2 cursor-pointer" @click="sortBy('type')">Tipo</th>
+                                <th class="py-2 px-2 cursor-pointer" @click="sortBy('description')">Descrição</th>
+                                <th class="py-2 px-2 cursor-pointer" @click="sortBy('amount')">Valor</th>
+                                <th class="py-2 px-2 cursor-pointer" @click="sortBy('status')">Estado</th>
+                                <th class="py-2 px-2 cursor-pointer" @click="sortBy('date')">Data</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="sale in salesFiltered" :key="`${sale.source}-${sale.id}`" class="border-b">
+                                <td class="py-2 px-2">{{ sale.type }}</td>
+                                <td class="py-2 px-2">{{ sale.description }}</td>
+                                <td class="py-2 px-2">{{ formatAmount(sale.amount) }} €</td>
+                                <td class="py-2 px-2">{{ sale.invoice_status || sale.status || '—' }}</td>
+                                <td class="py-2 px-2">{{ sale.date ? new Date(sale.date).toLocaleDateString('pt-PT') : '—' }}</td>
+                            </tr>
+                            <tr v-if="salesFiltered.length === 0">
+                                <td colspan="5" class="text-center py-3 text-gray-500 text-xs">Sem resultados.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div class="bg-white rounded shadow p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="font-semibold">Parcelas Registadas</h2>
+                        <span class="text-xs text-gray-500">{{ installmentsFiltered.length }} registo(s)</span>
+                    </div>
+
+                    <input v-model="searchPending" type="text" placeholder="Pesquisar parcelas..." class="mb-3 w-full border rounded px-3 py-1 text-sm">
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="bg-gray-50 border-b">
+                                    <th class="py-2 px-2 cursor-pointer" @click="sortBy('project')">Projeto</th>
+                                    <th class="py-2 px-2 cursor-pointer" @click="sortBy('invoice')">Documento</th>
+                                    <th class="py-2 px-2 cursor-pointer" @click="sortBy('amount')">Valor</th>
+                                    <th class="py-2 px-2 cursor-pointer" @click="sortBy('paid_at')">Data</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="installment in installmentsFiltered" :key="installment.id" class="border-b">
+                                    <td class="py-2 px-2">{{ installment.project }}</td>
+                                    <td class="py-2 px-2">{{ installment.invoice }}</td>
+                                    <td class="py-2 px-2">{{ formatAmount(installment.amount) }} €</td>
+                                    <td class="py-2 px-2">{{ installment.paid_at ? new Date(installment.paid_at).toLocaleDateString('pt-PT') : '—' }}</td>
+                                </tr>
+                                <tr v-if="installmentsFiltered.length === 0">
+                                    <td colspan="4" class="text-center py-3 text-gray-500 text-xs">Sem resultados.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="bg-white rounded shadow p-4">
+                    <div class="flex items-center justify-between mb-3">
+                        <h2 class="font-semibold">Documentos Registados</h2>
+                        <Link href="/invoices" class="text-xs text-[#015557] hover:underline">Ver módulo</Link>
+                    </div>
+
+                    <input v-model="searchInvoices" type="text" placeholder="Pesquisar documentos..." class="mb-3 w-full border rounded px-3 py-1 text-sm">
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="bg-gray-50 border-b">
+                                    <th class="py-2 px-2 cursor-pointer" @click="sortBy('number')">Nº</th>
+                                    <th class="py-2 px-2 cursor-pointer" @click="sortBy('project')">Projeto</th>
+                                    <th class="py-2 px-2 cursor-pointer" @click="sortBy('total')">Total</th>
+                                    <th class="py-2 px-2 cursor-pointer" @click="sortBy('status')">Estado</th>
+                                    <th class="py-2 px-2 cursor-pointer" @click="sortBy('issued_at')">Emitida</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="invoice in registeredInvoicesFiltered" :key="invoice.id" class="border-b">
+                                    <td class="py-2 px-2">{{ invoice.number }}</td>
+                                    <td class="py-2 px-2">{{ invoice.project?.name || '—' }}</td>
+                                    <td class="py-2 px-2">{{ formatAmount(invoice.total) }} €</td>
+                                    <td class="py-2 px-2">{{ invoice.status }}</td>
+                                    <td class="py-2 px-2">{{ invoice.issued_at ? new Date(invoice.issued_at).toLocaleDateString('pt-PT') : '—' }}</td>
+                                </tr>
+                                <tr v-if="registeredInvoicesFiltered.length === 0">
+                                    <td colspan="5" class="text-center py-3 text-gray-500 text-xs">Sem resultados.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div v-else class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+
+            <!-- Documentos Recentes -->
             <div class="bg-white rounded shadow p-4 col-span-2">
                 <div class="flex items-center justify-between mb-3">
-                    <h2 class="font-semibold">Últimas Faturas</h2>
+                    <h2 class="font-semibold">Últimos Documentos</h2>
                     <Link href="/invoices" class="text-xs text-[#015557] hover:underline">
                     Ver todas
                     </Link>
@@ -274,7 +405,7 @@ const projectsFiltered = computed(() =>
 
             <!-- Pendentes -->
             <div class="bg-white rounded shadow p-4">
-                <h2 class="font-semibold mb-3">Faturas Pendentes</h2>
+                <h2 class="font-semibold mb-3">Documentos Pendentes</h2>
 
                 <input v-model="searchPending" type="text" placeholder="Pesquisar..."
                     class="mb-3 w-full border rounded px-3 py-1 text-sm">
@@ -308,7 +439,7 @@ const projectsFiltered = computed(() =>
         </div>
 
         <!-- ===================== CLIENTES + PROJETOS ===================== -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div v-if="!isClientUser" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
             <!-- Últimos clientes -->
             <div class="bg-white rounded shadow p-4">

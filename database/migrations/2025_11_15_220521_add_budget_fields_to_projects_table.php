@@ -13,27 +13,27 @@ return new class extends Migration
     {
         Schema::table('projects', function (Blueprint $table) {
             // Tipo de projeto (Website, Loja Online, etc.)
-            if (!Schema::hasColumn('projects', 'type')) {
+            if (! Schema::hasColumn('projects', 'type')) {
                 $table->string('type')->after('name');
             }
 
             // Tecnologias (json)
-            if (!Schema::hasColumn('projects', 'technologies')) {
+            if (! Schema::hasColumn('projects', 'technologies')) {
                 $table->json('technologies')->nullable()->after('type');
             }
 
             // Descrição em HTML
-            if (!Schema::hasColumn('projects', 'description_html')) {
+            if (! Schema::hasColumn('projects', 'description_html')) {
                 $table->longText('description_html')->nullable()->after('technologies');
             }
 
             // Tags/etiquetas (estado, labels internas)
-            if (!Schema::hasColumn('projects', 'tags')) {
+            if (! Schema::hasColumn('projects', 'tags')) {
                 $table->json('tags')->nullable()->after('description_html');
             }
 
             // Status principal do projeto
-            if (!Schema::hasColumn('projects', 'status')) {
+            if (! Schema::hasColumn('projects', 'status')) {
                 $table->string('status')->default('novo')->after('tags');
             }
         });

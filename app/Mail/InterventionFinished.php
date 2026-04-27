@@ -22,7 +22,7 @@ class InterventionFinished extends Mailable
     {
         $clientName = $this->intervention->client?->name ?? 'Cliente';
 
-        return $this->subject('Intervencao concluida - ' . $clientName)
+        return $this->subject('Intervencao concluida - '.$clientName)
             ->view('emails.interventions.finished');
     }
 

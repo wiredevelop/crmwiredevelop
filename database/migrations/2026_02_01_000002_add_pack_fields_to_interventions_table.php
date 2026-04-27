@@ -4,18 +4,19 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration {
+return new class extends Migration
+{
     public function up(): void
     {
-        if (!Schema::hasTable('interventions')) {
+        if (! Schema::hasTable('interventions')) {
             return;
         }
 
         Schema::table('interventions', function (Blueprint $table) {
-            if (!Schema::hasColumn('interventions', 'is_pack')) {
+            if (! Schema::hasColumn('interventions', 'is_pack')) {
                 $table->boolean('is_pack')->default(true);
             }
-            if (!Schema::hasColumn('interventions', 'hourly_rate')) {
+            if (! Schema::hasColumn('interventions', 'hourly_rate')) {
                 $table->decimal('hourly_rate', 10, 2)->nullable();
             }
         });
@@ -23,7 +24,7 @@ return new class extends Migration {
 
     public function down(): void
     {
-        if (!Schema::hasTable('interventions')) {
+        if (! Schema::hasTable('interventions')) {
             return;
         }
 

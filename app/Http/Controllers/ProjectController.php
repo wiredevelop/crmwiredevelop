@@ -2,12 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Http\Requests\StoreProjectRequest;
 use App\Models\Client;
 use App\Models\Product;
 use App\Models\Project;
 use App\Models\Quote;
 use App\Models\QuoteProduct;
+use App\Support\ProjectCredentialObjectManager;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +18,8 @@ use Inertia\Response;
 
 class ProjectController extends Controller
 {
+    use InteractsWithClientPortalUsers;
+
     public function index(Request $request): Response
     {
         $statusOptions = [
@@ -32,20 +36,18 @@ class ProjectController extends Controller
         $status = $request->query('status');
         $currentStatus = in_array($status, $allowedStatuses, true) ? $status : null;
 
-        $projects = Project::with(['client', 'quote', 'invoice'])
-            ->where('is_hidden', false)
-            ->when($currentStatus, fn($query) => $query->where('status', $currentStatus))
+        $projects = $this->scopeByClient(Project::with(['client', 'quote', 'invoice'])->withSum('installments', 'amount')->where('is_hidden', false))
+            ->when($currentStatus, fn ($query) => $query->where('status', $currentStatus))
             ->latest()
             ->paginate(15)
             ->withQueryString();
 
-        $statusCounts = Project::select('status', DB::raw('count(*) as total'))
-            ->where('is_hidden', false)
+        $statusCounts = $this->scopeByClient(Project::select('status', DB::raw('count(*) as total'))->where('is_hidden', false))
             ->groupBy('status')
             ->pluck('total', 'status');
 
         $statusFilters = collect($statusOptions)
-            ->map(fn($option) => [
+            ->map(fn ($option) => [
                 'value' => $option['value'],
                 'label' => $option['label'],
                 'count' => (int) ($statusCounts[$option['value']] ?? 0),
@@ -56,12 +58,14 @@ class ProjectController extends Controller
             'projects' => $projects,
             'statusFilters' => $statusFilters,
             'currentStatus' => $currentStatus,
-            'totalCount' => Project::where('is_hidden', false)->count(),
+            'totalCount' => $this->scopeByClient(Project::query()->where('is_hidden', false))->count(),
         ]);
     }
 
     public function create(): Response
     {
+        $this->abortIfClientUser();
+
         $clients = Client::orderBy('name')->get(['id', 'name', 'company']);
 
         // catálogo (para importar)
@@ -80,7 +84,7 @@ class ProjectController extends Controller
                     'content_html' => $p->content_html,
                     'price' => $p->price,
 
-                    'pack_items' => $p->packItems->sortBy('order')->values()->map(fn($i) => [
+                    'pack_items' => $p->packItems->sortBy('order')->values()->map(fn ($i) => [
                         'hours' => $i->hours,
                         'normal_price' => $i->normal_price,
                         'pack_price' => $i->pack_price,
@@ -88,7 +92,7 @@ class ProjectController extends Controller
                         'featured' => (bool) $i->featured,
                     ])->toArray(),
 
-                    'info_fields' => $p->meta->sortBy('order')->values()->map(fn($m) => [
+                    'info_fields' => $p->meta->sortBy('order')->values()->map(fn ($m) => [
                         'type' => $m->type,
                         'label' => $m->label,
                         'value' => $m->value,
@@ -105,11 +109,19 @@ class ProjectController extends Controller
 
     public function show(Project $project): RedirectResponse
     {
+        $this->ensureProjectOwnership($project);
+
+        if ($this->isClientUser()) {
+            return redirect()->route('projects.index');
+        }
+
         return redirect()->route('projects.edit', $project);
     }
 
-    public function store(StoreProjectRequest $request): RedirectResponse
+    public function store(StoreProjectRequest $request, ProjectCredentialObjectManager $objectManager): RedirectResponse
     {
+        $this->abortIfClientUser();
+
         $data = $request->validated();
         $includeDomain = (bool) ($data['include_domain'] ?? false);
         $includeHosting = (bool) ($data['include_hosting'] ?? false);
@@ -118,7 +130,7 @@ class ProjectController extends Controller
         $hostingFirstYear = $includeHosting ? (float) ($data['price_hosting_first_year'] ?? 0) : 0;
         $hostingOtherYears = $includeHosting ? (float) ($data['price_hosting_other_years'] ?? 0) : 0;
 
-        DB::transaction(function () use (&$project, $data, $includeDomain, $includeHosting, $domainFirstYear, $domainOtherYears, $hostingFirstYear, $hostingOtherYears) {
+        DB::transaction(function () use (&$project, $data, $includeDomain, $includeHosting, $domainFirstYear, $domainOtherYears, $hostingFirstYear, $hostingOtherYears, $objectManager) {
 
             $project = Project::create([
                 'client_id' => $data['client_id'],
@@ -178,6 +190,8 @@ class ProjectController extends Controller
                 ]);
             }
 
+            $objectManager->syncForProject($project);
+
         });
 
         return redirect()->route('projects.index')->with('success', 'Projeto e orçamento criados com sucesso.');
@@ -185,6 +199,9 @@ class ProjectController extends Controller
 
     public function edit(Project $project): Response
     {
+        $this->ensureProjectOwnership($project);
+        $this->abortIfClientUser();
+
         $project->load(['client', 'quote', 'invoice', 'quote.quoteProducts']);
 
         $clients = Client::orderBy('name')->get(['id', 'name', 'company']);
@@ -203,14 +220,14 @@ class ProjectController extends Controller
                     'short_description' => $p->short_description,
                     'content_html' => $p->content_html,
                     'price' => $p->price,
-                    'pack_items' => $p->packItems->sortBy('order')->values()->map(fn($i) => [
+                    'pack_items' => $p->packItems->sortBy('order')->values()->map(fn ($i) => [
                         'hours' => $i->hours,
                         'normal_price' => $i->normal_price,
                         'pack_price' => $i->pack_price,
                         'validity_months' => $i->validity_months,
                         'featured' => (bool) $i->featured,
                     ])->toArray(),
-                    'info_fields' => $p->meta->sortBy('order')->values()->map(fn($m) => [
+                    'info_fields' => $p->meta->sortBy('order')->values()->map(fn ($m) => [
                         'type' => $m->type,
                         'label' => $m->label,
                         'value' => $m->value,
@@ -225,8 +242,11 @@ class ProjectController extends Controller
         ]);
     }
 
-    public function update(StoreProjectRequest $request, Project $project): RedirectResponse
+    public function update(StoreProjectRequest $request, Project $project, ProjectCredentialObjectManager $objectManager): RedirectResponse
     {
+        $this->ensureProjectOwnership($project);
+        $this->abortIfClientUser();
+
         $data = $request->validated();
         $includeDomain = (bool) ($data['include_domain'] ?? false);
         $includeHosting = (bool) ($data['include_hosting'] ?? false);
@@ -235,7 +255,7 @@ class ProjectController extends Controller
         $hostingFirstYear = $includeHosting ? (float) ($data['price_hosting_first_year'] ?? 0) : 0;
         $hostingOtherYears = $includeHosting ? (float) ($data['price_hosting_other_years'] ?? 0) : 0;
 
-        DB::transaction(function () use ($project, $data, $includeDomain, $includeHosting, $domainFirstYear, $domainOtherYears, $hostingFirstYear, $hostingOtherYears) {
+        DB::transaction(function () use ($project, $data, $includeDomain, $includeHosting, $domainFirstYear, $domainOtherYears, $hostingFirstYear, $hostingOtherYears, $objectManager) {
 
             $project->update([
                 'client_id' => $data['client_id'],
@@ -297,6 +317,8 @@ class ProjectController extends Controller
                 }
             }
 
+            $objectManager->syncForProject($project);
+
         });
 
         return redirect()->route('projects.index')->with('success', 'Projeto atualizado com sucesso.');
@@ -304,6 +326,9 @@ class ProjectController extends Controller
 
     public function destroy(Project $project): RedirectResponse
     {
+        $this->ensureProjectOwnership($project);
+        $this->abortIfClientUser();
+
         DB::transaction(function () use ($project) {
             if ($project->invoice) {
                 $project->invoice->delete();
@@ -325,7 +350,7 @@ class ProjectController extends Controller
 
     private function defaultTerms(): string
     {
-        return <<<TEXT
+        return <<<'TEXT'
 • Prazo de entrega: ≈ 10–15 dias úteis
 
 • Prazo de Garantia:
@@ -336,5 +361,4 @@ class ProjectController extends Controller
 
 TEXT;
     }
-
 }

@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use App\Models\ClientCredential;
 
 class Project extends Model
 {
@@ -51,5 +50,10 @@ class Project extends Model
     public function credentials()
     {
         return $this->hasMany(ClientCredential::class);
+    }
+
+    public function credentialObject()
+    {
+        return $this->hasOne(ClientCredentialObject::class);
     }
 }

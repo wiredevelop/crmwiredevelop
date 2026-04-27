@@ -19,6 +19,8 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'doc.token' => \App\Http\Middleware\AuthenticateDocumentToken::class,
+            'admin.only' => \App\Http\Middleware\EnsureAdminUser::class,
+            'force.password.change' => \App\Http\Middleware\EnsurePasswordChangeIsComplete::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

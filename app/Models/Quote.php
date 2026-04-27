@@ -61,7 +61,7 @@ class Quote extends Model
     protected static function booted()
     {
         static::creating(function ($quote) {
-            if (!$quote->public_token) {
+            if (! $quote->public_token) {
                 $quote->public_token = bin2hex(random_bytes(16));
             }
         });

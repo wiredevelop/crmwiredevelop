@@ -6,6 +6,7 @@ import { ref, watch } from 'vue'
 const props = usePage().props
 const clients = props.clients.data
 const pagination = props.clients
+const isClientUser = props.auth?.user?.role === 'client'
 
 // Filtros
 const search = ref(props.filters?.search || '')
@@ -50,7 +51,7 @@ function typeBadge(client) {
         <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-6">
             <h1 class="text-2xl font-semibold">Clientes</h1>
 
-            <Link href="/clients/create"
+            <Link v-if="!isClientUser" href="/clients/create"
                 class="bg-[#015557] text-white px-4 py-2 rounded hover:bg-[#014147]">
                 + Novo Cliente
             </Link>
@@ -100,10 +101,12 @@ function typeBadge(client) {
                         <td class="py-2 px-3">{{ c.phone || '—' }}</td>
 
                         <td class="py-2 px-3 text-right space-x-2">
-                            <Link :href="`/clients/${c.id}/edit`" class="text-blue-600 hover:underline">Editar</Link>
-                            <Link as="button" method="delete" :href="`/clients/${c.id}`" class="text-red-600 hover:underline">
-                                Apagar
-                            </Link>
+                            <template v-if="!isClientUser">
+                                <Link :href="`/clients/${c.id}/edit`" class="text-blue-600 hover:underline">Editar</Link>
+                                <Link as="button" method="delete" :href="`/clients/${c.id}`" class="text-red-600 hover:underline">
+                                    Apagar
+                                </Link>
+                            </template>
                         </td>
                     </tr>
                 </tbody>

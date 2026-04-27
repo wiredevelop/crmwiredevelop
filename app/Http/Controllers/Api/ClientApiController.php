@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\Concerns\RespondsWithJson;
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\ClientCredentialObjectResource;
 use App\Http\Resources\Api\ClientCredentialResource;
@@ -10,21 +11,24 @@ use App\Http\Resources\Api\ClientResource;
 use App\Models\Client;
 use App\Models\ClientCredential;
 use App\Models\ClientCredentialObject;
+use App\Support\ClientPortalManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ClientApiController extends Controller
 {
+    use InteractsWithClientPortalUsers;
     use RespondsWithJson;
 
     public function index(Request $request): JsonResponse
     {
-        $clients = Client::query()
-            ->when($request->filled('search'), fn ($q) => $q->where('name', 'like', '%' . $request->search . '%'))
-            ->when($request->filled('company'), fn ($q) => $q->where('company', 'like', '%' . $request->company . '%'))
-            ->when($request->filled('email'), fn ($q) => $q->where('email', 'like', '%' . $request->email . '%'))
-            ->when($request->filled('vat'), fn ($q) => $q->where('vat', 'like', '%' . $request->vat . '%'))
+        $clients = $this->scopeClients(Client::query()->with('user'))
+            ->when($request->filled('search'), fn ($q) => $q->where('name', 'like', '%'.$request->search.'%'))
+            ->when($request->filled('company'), fn ($q) => $q->where('company', 'like', '%'.$request->company.'%'))
+            ->when($request->filled('email'), fn ($q) => $q->where('email', 'like', '%'.$request->email.'%'))
+            ->when($request->filled('vat'), fn ($q) => $q->where('vat', 'like', '%'.$request->vat.'%'))
             ->orderBy('created_at', 'desc')
             ->paginate((int) $request->integer('per_page', 10))
             ->withQueryString();
@@ -36,30 +40,60 @@ class ClientApiController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $client = Client::create($this->validatedClientData($request));
+        $this->abortIfClientUser();
 
-        return $this->success([
-            'client' => new ClientResource($client),
-        ], 'Cliente criado com sucesso.', 201);
+        $response = DB::transaction(function () use ($request) {
+            $client = Client::create($this->validatedClientData($request));
+
+            $response = [
+                'client' => new ClientResource($client),
+            ];
+
+            if ($request->boolean('create_portal_user')) {
+                [$user, $temporaryPassword] = app(ClientPortalManager::class)->createPortalUser(
+                    $client,
+                    $request->string('portal_email')->toString(),
+                    $request->string('portal_password')->toString(),
+                );
+
+                $response['client'] = new ClientResource($client->fresh('user'));
+                $response['portal_user'] = new \App\Http\Resources\Api\UserResource($user);
+                $response['temporary_password'] = $temporaryPassword;
+            }
+
+            return $response;
+        });
+
+        return $this->success($response, 'Cliente criado com sucesso.', 201);
     }
 
     public function show(Client $client): JsonResponse
     {
+        $this->ensureClientOwnership($client);
+
         $client->load([
             'projects' => fn ($query) => $query->where('is_hidden', false)->latest()->take(5),
             'invoices' => fn ($query) => $query->latest()->take(5),
-            'credentialObjects.credentials' => fn ($query) => $query->latest(),
             'wallet.transactions',
+            'user',
         ]);
+
+        if (! $this->isClientUser()) {
+            $client->load([
+                'credentialObjects.credentials' => fn ($query) => $query->latest(),
+            ]);
+        }
 
         return $this->success([
             'client' => new ClientResource($client),
-            'notes' => $client->internal_notes ?? [],
+            'notes' => $this->isClientUser() ? [] : ($client->internal_notes ?? []),
         ]);
     }
 
     public function update(Request $request, Client $client): JsonResponse
     {
+        $this->abortIfClientUser();
+
         $client->update($this->validatedClientData($request));
 
         return $this->success([
@@ -69,13 +103,23 @@ class ClientApiController extends Controller
 
     public function destroy(Client $client): JsonResponse
     {
-        $client->delete();
+        $this->abortIfClientUser();
+
+        DB::transaction(function () use ($client) {
+            if ($user = $client->user) {
+                $user->tokens()->delete();
+                $user->delete();
+            }
+            $client->delete();
+        });
 
         return $this->success([], 'Cliente removido com sucesso.');
     }
 
     public function storeNote(Request $request, Client $client): JsonResponse
     {
+        $this->abortIfClientUser();
+
         $data = $request->validate([
             'note' => ['required', 'string'],
         ]);
@@ -96,8 +140,10 @@ class ClientApiController extends Controller
 
     public function duplicate(Client $client): JsonResponse
     {
+        $this->abortIfClientUser();
+
         $new = $client->replicate();
-        $new->name = $new->name . ' (Cópia)';
+        $new->name = $new->name.' (Cópia)';
         $new->save();
 
         return $this->success([
@@ -107,6 +153,8 @@ class ClientApiController extends Controller
 
     public function storeCredentialObject(Request $request, Client $client): JsonResponse
     {
+        $this->abortIfClientUser();
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:65535'],
@@ -121,6 +169,7 @@ class ClientApiController extends Controller
 
     public function destroyCredentialObject(Client $client, ClientCredentialObject $object): JsonResponse
     {
+        $this->abortIfClientUser();
         abort_if($object->client_id !== $client->id, 404);
 
         $object->delete();
@@ -130,10 +179,11 @@ class ClientApiController extends Controller
 
     public function exportCredentialObject(Client $client, ClientCredentialObject $object): StreamedResponse
     {
+        $this->abortIfClientUser();
         abort_if($object->client_id !== $client->id, 404);
 
         $credentials = $object->credentials()->latest()->get();
-        $filename = 'credenciais_' . $client->id . '_' . $object->id . '.csv';
+        $filename = 'credenciais_'.$client->id.'_'.$object->id.'.csv';
 
         return response()->streamDownload(function () use ($client, $object, $credentials) {
             echo "\xEF\xBB\xBF";
@@ -159,6 +209,8 @@ class ClientApiController extends Controller
 
     public function storeCredential(Request $request, Client $client): JsonResponse
     {
+        $this->abortIfClientUser();
+
         $data = $request->validate([
             'object_id' => ['required', 'integer'],
             'label' => ['required', 'string', 'max:150'],
@@ -178,11 +230,46 @@ class ClientApiController extends Controller
 
     public function destroyCredential(Client $client, ClientCredential $credential): JsonResponse
     {
+        $this->abortIfClientUser();
         abort_if($credential->client_id !== $client->id, 404);
 
         $credential->delete();
 
         return $this->success([], 'Credencial removida com sucesso.');
+    }
+
+    public function storePortalUser(Request $request, Client $client, ClientPortalManager $portalManager): JsonResponse
+    {
+        $this->abortIfClientUser();
+
+        [$user, $temporaryPassword] = $portalManager->createPortalUser(
+            $client,
+            $request->string('portal_email')->toString(),
+            $request->string('portal_password')->toString(),
+        );
+
+        return $this->success([
+            'portal_user' => new \App\Http\Resources\Api\UserResource($user),
+            'temporary_password' => $temporaryPassword,
+        ], 'Acesso do cliente criado com sucesso.', 201);
+    }
+
+    public function regenerateTemporaryPassword(Request $request, Client $client, ClientPortalManager $portalManager): JsonResponse
+    {
+        $this->abortIfClientUser();
+
+        $data = $request->validate([
+            'delivery_mode' => ['required', 'in:copy,email'],
+        ]);
+
+        [$user, $temporaryPassword] = $portalManager->regenerateTemporaryPassword($client, $data['delivery_mode']);
+
+        return $this->success([
+            'portal_user' => new \App\Http\Resources\Api\UserResource($user),
+            'temporary_password' => $temporaryPassword,
+        ], $data['delivery_mode'] === 'email'
+            ? 'Nova senha temporária enviada por email.'
+            : 'Nova senha temporária gerada com sucesso.');
     }
 
     private function validatedClientData(Request $request): array
