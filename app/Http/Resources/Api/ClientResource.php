@@ -17,6 +17,14 @@ class ClientResource extends JsonResource
             'phone' => $this->phone,
             'vat' => $this->vat,
             'address' => $this->address,
+            'billing_name' => $this->billing_name,
+            'billing_email' => $this->billing_email,
+            'billing_phone' => $this->billing_phone,
+            'billing_vat' => $this->billing_vat,
+            'billing_address' => $this->billing_address,
+            'billing_postal_code' => $this->billing_postal_code,
+            'billing_city' => $this->billing_city,
+            'billing_country' => $this->billing_country,
             'notes' => $this->notes,
             'internal_notes' => $this->internal_notes,
             'hourly_rate' => $this->hourly_rate,
@@ -32,6 +40,7 @@ class ClientResource extends JsonResource
                 $this->relationLoaded('user') && $this->user,
                 fn () => new UserResource($this->user)
             ),
+            'stripe_customer_id' => $this->stripe_customer_id,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];

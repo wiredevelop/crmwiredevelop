@@ -10,6 +10,7 @@ use App\Http\Resources\Api\ClientCredentialResource;
 use App\Http\Resources\Api\ProjectResource;
 use App\Models\Client;
 use App\Models\ClientCredential;
+use App\Models\ProjectMessage;
 use App\Models\Product;
 use App\Models\Project;
 use App\Models\Quote;
@@ -75,7 +76,7 @@ class ProjectApiController extends Controller
         $this->ensureProjectOwnership($project);
 
         $project->loadSum('installments', 'amount');
-        $project->load(['client', 'quote.quoteProducts', 'invoice']);
+        $project->load(['client', 'quote.quoteProducts', 'invoice', 'messages.user']);
         if (! $this->isClientUser()) {
             $project->load('credentials');
         }
@@ -187,8 +188,12 @@ class ProjectApiController extends Controller
         $domainOtherYears = $includeDomain ? (float) ($data['price_domain_other_years'] ?? 0) : 0;
         $hostingFirstYear = $includeHosting ? (float) ($data['price_hosting_first_year'] ?? 0) : 0;
         $hostingOtherYears = $includeHosting ? (float) ($data['price_hosting_other_years'] ?? 0) : 0;
+        $author = request()->user();
 
-        return DB::transaction(function () use ($project, $data, $includeDomain, $includeHosting, $domainFirstYear, $domainOtherYears, $hostingFirstYear, $hostingOtherYears) {
+        return DB::transaction(function () use ($project, $data, $includeDomain, $includeHosting, $domainFirstYear, $domainOtherYears, $hostingFirstYear, $hostingOtherYears, $author) {
+            $isNew = ! $project;
+            $previousStatus = $project?->status;
+
             if (! $project) {
                 $project = Project::create([
                     'client_id' => $data['client_id'],
@@ -231,6 +236,7 @@ class ProjectApiController extends Controller
             }
 
             $this->objectManager->syncForProject($project);
+            $this->logProjectStatusMessage($project, $previousStatus, $author?->id, $author?->role, $isNew);
 
             return $project;
         });
@@ -322,5 +328,40 @@ TEXT;
             ['value' => 'pausado', 'label' => 'Pausado'],
             ['value' => 'cancelado', 'label' => 'Cancelado'],
         ];
+    }
+
+    private function logProjectStatusMessage(Project $project, ?string $previousStatus, ?int $userId, ?string $senderRole, bool $isNew): void
+    {
+        $currentStatus = $project->status;
+        if (! $isNew && $previousStatus === $currentStatus) {
+            return;
+        }
+
+        $body = $isNew
+            ? 'Projeto criado com o estado '.$this->statusLabel($currentStatus).'.'
+            : 'Estado alterado para '.$this->statusLabel($currentStatus).'.';
+
+        ProjectMessage::create([
+            'project_id' => $project->id,
+            'user_id' => $userId,
+            'sender_role' => $senderRole,
+            'type' => 'status_update',
+            'body' => $body,
+            'meta' => [
+                'previous_status' => $previousStatus,
+                'current_status' => $currentStatus,
+            ],
+        ]);
+    }
+
+    private function statusLabel(?string $status): string
+    {
+        foreach ($this->statusOptions() as $option) {
+            if ($option['value'] === $status) {
+                return $option['label'];
+            }
+        }
+
+        return $status ?: 'Sem estado';
     }
 }

@@ -41,4 +41,13 @@ return [
         'systemctl' => env('CODE_SERVER_SYSTEMCTL', 'systemctl'),
     ],
 
+    'stripe' => [
+        'public_key' => env('STRIPE_PUBLIC_KEY'),
+        'secret_key' => env('STRIPE_SECRET_KEY'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+        'api_version' => env('STRIPE_API_VERSION', '2026-02-25.clover'),
+        'success_url' => env('STRIPE_SUCCESS_URL'),
+        'cancel_url' => env('STRIPE_CANCEL_URL'),
+    ],
+
 ];

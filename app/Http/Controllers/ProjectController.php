@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Http\Requests\StoreProjectRequest;
 use App\Models\Client;
+use App\Models\ProjectMessage;
 use App\Models\Product;
 use App\Models\Project;
 use App\Models\Quote;
@@ -130,7 +131,9 @@ class ProjectController extends Controller
         $hostingFirstYear = $includeHosting ? (float) ($data['price_hosting_first_year'] ?? 0) : 0;
         $hostingOtherYears = $includeHosting ? (float) ($data['price_hosting_other_years'] ?? 0) : 0;
 
-        DB::transaction(function () use (&$project, $data, $includeDomain, $includeHosting, $domainFirstYear, $domainOtherYears, $hostingFirstYear, $hostingOtherYears, $objectManager) {
+        $author = request()->user();
+
+        DB::transaction(function () use (&$project, $data, $includeDomain, $includeHosting, $domainFirstYear, $domainOtherYears, $hostingFirstYear, $hostingOtherYears, $objectManager, $author) {
 
             $project = Project::create([
                 'client_id' => $data['client_id'],
@@ -191,6 +194,7 @@ class ProjectController extends Controller
             }
 
             $objectManager->syncForProject($project);
+            $this->logProjectStatusMessage($project, null, $author?->id, $author?->role, true);
 
         });
 
@@ -255,7 +259,10 @@ class ProjectController extends Controller
         $hostingFirstYear = $includeHosting ? (float) ($data['price_hosting_first_year'] ?? 0) : 0;
         $hostingOtherYears = $includeHosting ? (float) ($data['price_hosting_other_years'] ?? 0) : 0;
 
-        DB::transaction(function () use ($project, $data, $includeDomain, $includeHosting, $domainFirstYear, $domainOtherYears, $hostingFirstYear, $hostingOtherYears, $objectManager) {
+        $author = request()->user();
+
+        DB::transaction(function () use ($project, $data, $includeDomain, $includeHosting, $domainFirstYear, $domainOtherYears, $hostingFirstYear, $hostingOtherYears, $objectManager, $author) {
+            $previousStatus = $project->status;
 
             $project->update([
                 'client_id' => $data['client_id'],
@@ -318,6 +325,7 @@ class ProjectController extends Controller
             }
 
             $objectManager->syncForProject($project);
+            $this->logProjectStatusMessage($project, $previousStatus, $author?->id, $author?->role, false);
 
         });
 
@@ -360,5 +368,41 @@ class ProjectController extends Controller
   - Após o período de garantia, qualquer ajuste será orçamentado separadamente.
 
 TEXT;
+    }
+
+    private function logProjectStatusMessage(Project $project, ?string $previousStatus, ?int $userId, ?string $senderRole, bool $isNew): void
+    {
+        $currentStatus = $project->status;
+        if (! $isNew && $previousStatus === $currentStatus) {
+            return;
+        }
+
+        ProjectMessage::create([
+            'project_id' => $project->id,
+            'user_id' => $userId,
+            'sender_role' => $senderRole,
+            'type' => 'status_update',
+            'body' => $isNew
+                ? 'Projeto criado com o estado '.$this->statusLabel($currentStatus).'.'
+                : 'Estado alterado para '.$this->statusLabel($currentStatus).'.',
+            'meta' => [
+                'previous_status' => $previousStatus,
+                'current_status' => $currentStatus,
+            ],
+        ]);
+    }
+
+    private function statusLabel(?string $status): string
+    {
+        return match ($status) {
+            'planeamento' => 'Planeamento',
+            'em_andamento' => 'Em Andamento',
+            'aguardar_conteudos' => 'Aguardar Conteúdos',
+            'em_revisao' => 'Em Revisão',
+            'concluido' => 'Concluído',
+            'pausado' => 'Pausado',
+            'cancelado' => 'Cancelado',
+            default => $status ?: 'Sem estado',
+        };
     }
 }

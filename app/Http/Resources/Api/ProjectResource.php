@@ -39,6 +39,7 @@ class ProjectResource extends JsonResource
                 $this->relationLoaded('invoice') && $this->invoice,
                 fn () => new InvoiceResource($this->invoice)
             ),
+            'messages' => ProjectMessageResource::collection($this->whenLoaded('messages')),
             'credentials' => ClientCredentialResource::collection($this->whenLoaded('credentials')),
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,

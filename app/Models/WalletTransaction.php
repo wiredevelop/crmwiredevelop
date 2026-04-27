@@ -20,6 +20,9 @@ class WalletTransaction extends Model
         'installment_count',
         'to_invoice',
         'invoice_id',
+        'payment_provider',
+        'payment_reference',
+        'payment_metadata',
     ];
 
     protected $casts = [
@@ -30,6 +33,7 @@ class WalletTransaction extends Model
         'installment_count' => 'integer',
         'to_invoice' => 'boolean',
         'invoice_id' => 'integer',
+        'payment_metadata' => 'array',
     ];
 
     public function wallet()

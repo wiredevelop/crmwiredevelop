@@ -56,4 +56,9 @@ class Project extends Model
     {
         return $this->hasOne(ClientCredentialObject::class);
     }
+
+    public function messages()
+    {
+        return $this->hasMany(ProjectMessage::class)->latest();
+    }
 }

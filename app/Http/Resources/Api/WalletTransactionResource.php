@@ -24,6 +24,9 @@ class WalletTransactionResource extends JsonResource
             'installment_count' => $this->installment_count,
             'to_invoice' => (bool) $this->to_invoice,
             'invoice_id' => $this->invoice_id,
+            'payment_provider' => $this->payment_provider,
+            'payment_reference' => $this->payment_reference,
+            'payment_metadata' => $this->payment_metadata,
             'product' => $this->when(
                 $this->relationLoaded('product') && $this->product,
                 fn () => new ProductResource($this->product)

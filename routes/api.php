@@ -11,13 +11,16 @@ use App\Http\Controllers\Api\InvoiceApiController;
 use App\Http\Controllers\Api\ObjectPortalApiController;
 use App\Http\Controllers\Api\ProductApiController;
 use App\Http\Controllers\Api\ProjectApiController;
+use App\Http\Controllers\Api\ProjectMessageApiController;
 use App\Http\Controllers\Api\QuoteApiController;
 use App\Http\Controllers\Api\SettingsApiController;
+use App\Http\Controllers\Api\StripeWebhookApiController;
 use App\Http\Controllers\Api\WalletApiController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->as('api.')->group(function () {
     Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
+    Route::post('/payments/stripe/webhook', StripeWebhookApiController::class);
 
     Route::get('/quotes/public/{token}', [QuoteApiController::class, 'publicView']);
     Route::get('/quotes/public/{token}/pdf', [QuoteApiController::class, 'publicPdf']);
@@ -39,6 +42,7 @@ Route::prefix('v1')->as('api.')->group(function () {
         Route::get('/dashboard', [DashboardApiController::class, 'index']);
         Route::get('/objects', [ObjectPortalApiController::class, 'index']);
         Route::get('/wallet', [ClientWalletApiController::class, 'show']);
+        Route::post('/wallet/checkout', [ClientWalletApiController::class, 'checkout']);
 
         Route::apiResource('clients', ClientApiController::class);
         Route::post('/clients/{client}/notes', [ClientApiController::class, 'storeNote']);
@@ -53,6 +57,7 @@ Route::prefix('v1')->as('api.')->group(function () {
 
         Route::get('/projects/options', [ProjectApiController::class, 'options']);
         Route::apiResource('projects', ProjectApiController::class);
+        Route::post('/projects/{project}/messages', [ProjectMessageApiController::class, 'store']);
         Route::get('/projects/{project}/credentials', [ProjectApiController::class, 'credentials']);
         Route::post('/projects/{project}/credentials', [ProjectApiController::class, 'storeCredential']);
         Route::delete('/projects/{project}/credentials/{credential}', [ProjectApiController::class, 'destroyCredential']);
