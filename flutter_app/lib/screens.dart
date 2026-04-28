@@ -5838,21 +5838,9 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
   List<dynamic> _packs = [];
   String? _packProductId;
   String? _packItemId;
-  bool _wantsInvoice = false;
   final TextEditingController _packQuantityController = TextEditingController(
     text: '1',
   );
-  final TextEditingController _billingNameController = TextEditingController();
-  final TextEditingController _billingEmailController = TextEditingController();
-  final TextEditingController _billingPhoneController = TextEditingController();
-  final TextEditingController _billingVatController = TextEditingController();
-  final TextEditingController _billingAddressController =
-      TextEditingController();
-  final TextEditingController _billingPostalCodeController =
-      TextEditingController();
-  final TextEditingController _billingCityController = TextEditingController();
-  final TextEditingController _billingCountryController =
-      TextEditingController();
 
   @override
   void initState() {
@@ -5863,14 +5851,6 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
   @override
   void dispose() {
     _packQuantityController.dispose();
-    _billingNameController.dispose();
-    _billingEmailController.dispose();
-    _billingPhoneController.dispose();
-    _billingVatController.dispose();
-    _billingAddressController.dispose();
-    _billingPostalCodeController.dispose();
-    _billingCityController.dispose();
-    _billingCountryController.dispose();
     super.dispose();
   }
 
@@ -5893,7 +5873,6 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
         }
         _syncPackItemSelection();
       });
-      _prefillBillingFromWallet();
     } on ApiException catch (error) {
       setState(() => _error = error.message);
     } finally {
@@ -5978,42 +5957,6 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
     return '${item['hours']}h · ${moneyOrDash(item['pack_price'])} · ${item['validity_months']} meses';
   }
 
-  String? _trimmed(TextEditingController controller) {
-    final value = controller.text.trim();
-    return value.isEmpty ? null : value;
-  }
-
-  void _prefillBillingFromWallet() {
-    final client = _walletClient;
-    if (client == null) return;
-
-    _billingNameController.text =
-        client['billing_name']?.toString().trim().isNotEmpty == true
-        ? client['billing_name'].toString()
-        : (client['name']?.toString() ?? '');
-    _billingEmailController.text =
-        client['billing_email']?.toString().trim().isNotEmpty == true
-        ? client['billing_email'].toString()
-        : (client['email']?.toString() ?? '');
-    _billingPhoneController.text =
-        client['billing_phone']?.toString().trim().isNotEmpty == true
-        ? client['billing_phone'].toString()
-        : (client['phone']?.toString() ?? '');
-    _billingVatController.text =
-        client['billing_vat']?.toString().trim().isNotEmpty == true
-        ? client['billing_vat'].toString()
-        : (client['vat']?.toString() ?? '');
-    _billingAddressController.text =
-        client['billing_address']?.toString().trim().isNotEmpty == true
-        ? client['billing_address'].toString()
-        : '';
-    _billingPostalCodeController.text =
-        client['billing_postal_code']?.toString() ?? '';
-    _billingCityController.text = client['billing_city']?.toString() ?? '';
-    _billingCountryController.text =
-        (client['billing_country']?.toString() ?? '').toUpperCase();
-  }
-
   Future<void> _openSelectedPackDocument() async {
     final product = _selectedPackProduct;
     if (product == null) return;
@@ -6067,62 +6010,11 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
     return toNumber(item['pack_price']) * _selectedQuantity;
   }
 
-  String? _validateBillingFields() {
-    if (!_wantsInvoice) return null;
-
-    final requiredFields = <String, String?>{
-      'nome': _trimmed(_billingNameController),
-      'email': _trimmed(_billingEmailController),
-      'NIF': _trimmed(_billingVatController),
-      'morada': _trimmed(_billingAddressController),
-      'código postal': _trimmed(_billingPostalCodeController),
-      'cidade': _trimmed(_billingCityController),
-      'país': _trimmed(_billingCountryController),
-    };
-
-    final missing = requiredFields.entries
-        .where((entry) => entry.value == null)
-        .map((entry) => entry.key)
-        .toList();
-
-    if (missing.isNotEmpty) {
-      return 'Preenche os dados de faturação antes de pedir documento com NIF.';
-    }
-
-    if ((_trimmed(_billingVatController)?.length ?? 0) != 9) {
-      return 'O NIF deve ter 9 dígitos.';
-    }
-
-    if ((_trimmed(_billingPostalCodeController)?.length ?? 0) != 8) {
-      return 'O código postal deve estar no formato 0000-000.';
-    }
-
-    if ((_trimmed(_billingCountryController)?.length ?? 0) != 2) {
-      return 'O país deve ter 2 letras, por exemplo PT.';
-    }
-
-    return null;
-  }
-
   BillingDetails _billingDetails() {
     return BillingDetails(
-      name:
-          _trimmed(_billingNameController) ??
-          _walletClient?['name']?.toString(),
-      email:
-          _trimmed(_billingEmailController) ??
-          _walletClient?['email']?.toString(),
-      phone:
-          _trimmed(_billingPhoneController) ??
-          _walletClient?['phone']?.toString(),
-      address: Address(
-        city: _trimmed(_billingCityController),
-        country: _trimmed(_billingCountryController)?.toUpperCase(),
-        line1: _trimmed(_billingAddressController),
-        line2: '',
-        postalCode: _trimmed(_billingPostalCodeController),
-        state: '',
-      ),
+      name: _walletClient?['name']?.toString(),
+      email: _walletClient?['email']?.toString(),
+      phone: _walletClient?['phone']?.toString(),
     );
   }
 
@@ -6131,15 +6023,7 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
       'product_id': int.parse(_packProductId!),
       'pack_item_id': int.parse(_packItemId!),
       'quantity': _selectedQuantity,
-      'wants_invoice': _wantsInvoice,
-      'billing_name': _trimmed(_billingNameController),
-      'billing_email': _trimmed(_billingEmailController),
-      'billing_phone': _trimmed(_billingPhoneController),
-      'billing_vat': _trimmed(_billingVatController),
-      'billing_address': _trimmed(_billingAddressController),
-      'billing_postal_code': _trimmed(_billingPostalCodeController),
-      'billing_city': _trimmed(_billingCityController),
-      'billing_country': _trimmed(_billingCountryController)?.toUpperCase(),
+      'wants_invoice': false,
     };
   }
 
@@ -6148,93 +6032,22 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
     final option = _selectedPackItem;
     if (pack == null || option == null) return false;
 
-    return await showCupertinoDialog<bool>(
-          context: context,
-          builder: (context) => CupertinoAlertDialog(
-            title: const Text('Rever compra'),
-            content: Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Column(
-                children: [
-                  _reviewLine('Pack', pack['name']?.toString() ?? '—'),
-                  _reviewLine(
-                    'Opção',
-                    '${option['hours']}h · ${option['validity_months']} meses',
-                  ),
-                  _reviewLine('Quantidade', _selectedQuantity.toString()),
-                  _reviewLine('Preço unitário', money(option['pack_price'])),
-                  _reviewLine('Total', money(_selectedPackTotal)),
-                  _reviewLine(
-                    'Documento com NIF',
-                    _wantsInvoice ? 'Sim' : 'Não',
-                  ),
-                  if (_wantsInvoice) ...[
-                    _reviewLine(
-                      'Nome',
-                      _trimmed(_billingNameController) ?? '—',
-                    ),
-                    _reviewLine(
-                      'Email',
-                      _trimmed(_billingEmailController) ?? '—',
-                    ),
-                    _reviewLine(
-                      'Telefone',
-                      _trimmed(_billingPhoneController) ?? '—',
-                    ),
-                    _reviewLine('NIF', _trimmed(_billingVatController) ?? '—'),
-                    _reviewLine(
-                      'Morada',
-                      _trimmed(_billingAddressController) ?? '—',
-                    ),
-                    _reviewLine(
-                      'Código postal',
-                      _trimmed(_billingPostalCodeController) ?? '—',
-                    ),
-                    _reviewLine(
-                      'Cidade',
-                      _trimmed(_billingCityController) ?? '—',
-                    ),
-                    _reviewLine(
-                      'País',
-                      _trimmed(_billingCountryController)?.toUpperCase() ?? '—',
-                    ),
-                  ],
-                ],
-              ),
+    return await Navigator.of(context).push<bool>(
+          CupertinoPageRoute(
+            builder: (context) => ClientCheckoutSummaryScreen(
+              packName: pack['name']?.toString() ?? '—',
+              optionLabel:
+                  '${option['hours']}h · ${moneyOrDash(option['pack_price'])} · ${option['validity_months']} meses',
+              quantity: _selectedQuantity,
+              unitPrice: money(option['pack_price']),
+              totalPrice: money(_selectedPackTotal),
+              clientName: _walletClient?['name']?.toString() ?? '—',
+              clientEmail: _walletClient?['email']?.toString() ?? '—',
+              clientPhone: _walletClient?['phone']?.toString() ?? '—',
             ),
-            actions: [
-              CupertinoDialogAction(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Voltar'),
-              ),
-              CupertinoDialogAction(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Pagar'),
-              ),
-            ],
           ),
         ) ??
         false;
-  }
-
-  Widget _reviewLine(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 4,
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(flex: 6, child: Text(value, textAlign: TextAlign.right)),
-        ],
-      ),
-    );
   }
 
   Future<void> _pickClientPackProduct() async {
@@ -6330,16 +6143,6 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
 
   Future<void> _openCheckout() async {
     if (_packProductId == null || _packItemId == null || _paymentLoading) {
-      return;
-    }
-
-    final billingError = _validateBillingFields();
-    if (billingError != null) {
-      await showMessage(
-        context,
-        title: 'Dados inválidos',
-        message: billingError,
-      );
       return;
     }
 
@@ -6526,85 +6329,6 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
                               LengthLimitingTextInputFormatter(2),
                             ],
                           ),
-                          const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              const Expanded(
-                                child: Text('Pedir documento com NIF'),
-                              ),
-                              CupertinoSwitch(
-                                value: _wantsInvoice,
-                                onChanged: (value) =>
-                                    setState(() => _wantsInvoice = value),
-                              ),
-                            ],
-                          ),
-                          if (_wantsInvoice) ...[
-                            const SizedBox(height: 12),
-                            _field(
-                              'Nome faturação',
-                              _billingNameController,
-                              textCapitalization: TextCapitalization.words,
-                              maxLength: 120,
-                            ),
-                            _field(
-                              'Email faturação',
-                              _billingEmailController,
-                              keyboardType: TextInputType.emailAddress,
-                              maxLength: 160,
-                            ),
-                            _field(
-                              'Telefone',
-                              _billingPhoneController,
-                              keyboardType: TextInputType.phone,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                LengthLimitingTextInputFormatter(9),
-                              ],
-                            ),
-                            _field(
-                              'NIF',
-                              _billingVatController,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                                LengthLimitingTextInputFormatter(9),
-                              ],
-                            ),
-                            _field(
-                              'Morada',
-                              _billingAddressController,
-                              textCapitalization: TextCapitalization.words,
-                              maxLength: 160,
-                            ),
-                            _field(
-                              'Código postal',
-                              _billingPostalCodeController,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [
-                                PostalCodeTextInputFormatter(),
-                                LengthLimitingTextInputFormatter(8),
-                              ],
-                            ),
-                            _field(
-                              'Cidade',
-                              _billingCityController,
-                              textCapitalization: TextCapitalization.words,
-                              maxLength: 80,
-                            ),
-                            _field(
-                              'País (PT)',
-                              _billingCountryController,
-                              textCapitalization: TextCapitalization.characters,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.allow(
-                                  RegExp(r'[a-zA-Z]'),
-                                ),
-                                UpperCaseTextFormatter(),
-                                LengthLimitingTextInputFormatter(2),
-                              ],
-                            ),
-                          ],
                           const SizedBox(height: 10),
                           CupertinoButton(
                             color: const Color(0xFF0E4D50),
@@ -6615,9 +6339,10 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
                                     color: CupertinoColors.white,
                                   )
                                 : const Text(
-                                    'Rever e pagar',
+                                    'AVANÇAR',
                                     style: TextStyle(
                                       color: CupertinoColors.white,
+                                      fontWeight: FontWeight.w700,
                                     ),
                                   ),
                           ),
@@ -6685,6 +6410,109 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
       ),
     );
   }
+}
+
+class ClientCheckoutSummaryScreen extends StatelessWidget {
+  const ClientCheckoutSummaryScreen({
+    super.key,
+    required this.packName,
+    required this.optionLabel,
+    required this.quantity,
+    required this.unitPrice,
+    required this.totalPrice,
+    required this.clientName,
+    required this.clientEmail,
+    required this.clientPhone,
+  });
+
+  final String packName;
+  final String optionLabel;
+  final int quantity;
+  final String unitPrice;
+  final String totalPrice;
+  final String clientName;
+  final String clientEmail;
+  final String clientPhone;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      navigationBar: const CupertinoNavigationBar(middle: Text('Resumo')),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppGradientBackground(),
+          SafeArea(
+            child: ListView(
+              physics: const BouncingScrollPhysics(
+                parent: AlwaysScrollableScrollPhysics(),
+              ),
+              padding: const EdgeInsets.all(16),
+              children: [
+                CardSection(
+                  title: 'Resumo da compra',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _reviewLine('Pack', packName),
+                      _reviewLine('Opção', optionLabel),
+                      _reviewLine('Quantidade', quantity.toString()),
+                      _reviewLine('Preço unitário', unitPrice),
+                      _reviewLine('Total', totalPrice),
+                    ],
+                  ),
+                ),
+                CardSection(
+                  title: 'Dados da conta',
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _reviewLine('Nome', clientName),
+                      _reviewLine('Email', clientEmail),
+                      _reviewLine('Telefone', clientPhone),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                CupertinoButton(
+                  color: const Color(0xFF0E4D50),
+                  borderRadius: BorderRadius.circular(14),
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text(
+                    'PAGAR',
+                    style: TextStyle(
+                      color: CupertinoColors.white,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Widget _reviewLine(String label, String value) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 10),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          flex: 4,
+          child: Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(flex: 6, child: Text(value, textAlign: TextAlign.right)),
+      ],
+    ),
+  );
 }
 
 class CompanyScreen extends _CompanyLikeScreen {
@@ -7437,46 +7265,6 @@ Widget _field(
       ],
     ),
   );
-}
-
-class PostalCodeTextInputFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    final digits = newValue.text.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digits.isEmpty) {
-      return const TextEditingValue();
-    }
-
-    final clamped = digits.substring(0, min(7, digits.length));
-    final buffer = StringBuffer();
-    for (var i = 0; i < clamped.length; i++) {
-      if (i == 4) buffer.write('-');
-      buffer.write(clamped[i]);
-    }
-    final formatted = buffer.toString();
-
-    return TextEditingValue(
-      text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
-    );
-  }
-}
-
-class UpperCaseTextFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    final upper = newValue.text.toUpperCase();
-    return TextEditingValue(
-      text: upper,
-      selection: TextSelection.collapsed(offset: upper.length),
-    );
-  }
 }
 
 Widget _selectorField({

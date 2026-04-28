@@ -10,6 +10,16 @@ class AppController extends ChangeNotifier {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   final LocalAuthentication _localAuth = LocalAuthentication();
 
+  static const String _baseUrlKey = 'base_url';
+  static const String _apiEmailKey = 'api_email';
+  static const String _apiPasswordKey = 'api_password';
+  static const String _tokenKey = 'token';
+  static const String _userPayloadKey = 'user_payload';
+  static const String _userNameKey = 'user_name';
+  static const String _userEmailKey = 'user_email';
+  static const String _biometricEnabledKey = 'biometric_enabled';
+  static const String _biometricAccountKey = 'biometric_account_key';
+
   static const String defaultBaseUrl = String.fromEnvironment(
     'WIRE_CRM_API_URL',
     defaultValue: 'https://crm.wiredevelop.pt/api/v1',
@@ -22,6 +32,7 @@ class AppController extends ChangeNotifier {
   String? _token;
   Map<String, dynamic>? _user;
   bool _biometricEnabled = false;
+  String? _biometricAssociation;
 
   bool get isReady => _isReady;
   bool get isAuthenticated => _token != null && _token!.isNotEmpty;
@@ -33,6 +44,10 @@ class AppController extends ChangeNotifier {
   bool get biometricEnabled => _biometricEnabled;
   bool get hasCachedCredentials =>
       _apiEmail.trim().isNotEmpty && _apiPassword.isNotEmpty;
+  bool get hasBiometricQuickLogin =>
+      _biometricEnabled &&
+      hasCachedCredentials &&
+      (_biometricAssociation?.isNotEmpty ?? false);
   bool get mustChangePassword => _user?['must_change_password'] == true;
   bool get isClientUser => _user?['role'] == 'client';
 
@@ -40,30 +55,36 @@ class AppController extends ChangeNotifier {
 
   Future<void> initialize() async {
     try {
-      final storedBaseUrl = await _storage.read(key: 'base_url');
+      final storedBaseUrl = await _storage.read(key: _baseUrlKey);
 
       _baseUrl = normalizeBaseUrl(
         storedBaseUrl == legacyBaseUrl
             ? defaultBaseUrl
             : (storedBaseUrl ?? _baseUrl),
       );
-      _apiEmail = (await _storage.read(key: 'api_email')) ?? _apiEmail;
-      _apiPassword = (await _storage.read(key: 'api_password')) ?? _apiPassword;
-      _token = await _storage.read(key: 'token');
+      _apiEmail = (await _storage.read(key: _apiEmailKey)) ?? _apiEmail;
+      _apiPassword =
+          (await _storage.read(key: _apiPasswordKey)) ?? _apiPassword;
+      _token = await _storage.read(key: _tokenKey);
       _biometricEnabled =
-          (await _storage.read(key: 'biometric_enabled')) == 'true';
-      final rawUserPayload = await _storage.read(key: 'user_payload');
+          (await _storage.read(key: _biometricEnabledKey)) == 'true';
+      _biometricAssociation = await _storage.read(key: _biometricAccountKey);
+      final rawUserPayload = await _storage.read(key: _userPayloadKey);
       if (rawUserPayload != null && rawUserPayload.isNotEmpty) {
         final decoded = jsonDecode(rawUserPayload);
         if (decoded is Map<String, dynamic>) {
           _user = decoded;
         }
       } else {
-        final rawName = await _storage.read(key: 'user_name');
-        final rawEmail = await _storage.read(key: 'user_email');
+        final rawName = await _storage.read(key: _userNameKey);
+        final rawEmail = await _storage.read(key: _userEmailKey);
         if (rawName != null || rawEmail != null) {
           _user = {'name': rawName, 'email': rawEmail};
         }
+      }
+
+      if (!hasCachedCredentials || (_biometricAssociation?.isEmpty ?? true)) {
+        _biometricEnabled = false;
       }
     } catch (_) {
       await _resetLocalSession();
@@ -75,7 +96,7 @@ class AppController extends ChangeNotifier {
 
   Future<void> updateBaseUrl(String value) async {
     _baseUrl = normalizeBaseUrl(value);
-    await _storage.write(key: 'base_url', value: _baseUrl);
+    await _storage.write(key: _baseUrlKey, value: _baseUrl);
     notifyListeners();
   }
 
@@ -88,9 +109,9 @@ class AppController extends ChangeNotifier {
     _apiEmail = email.trim();
     _apiPassword = password;
 
-    await _storage.write(key: 'base_url', value: _baseUrl);
-    await _storage.write(key: 'api_email', value: _apiEmail);
-    await _storage.write(key: 'api_password', value: _apiPassword);
+    await _storage.write(key: _baseUrlKey, value: _baseUrl);
+    await _storage.write(key: _apiEmailKey, value: _apiEmail);
+    await _storage.write(key: _apiPasswordKey, value: _apiPassword);
     notifyListeners();
   }
 
@@ -120,18 +141,26 @@ class AppController extends ChangeNotifier {
     required String email,
     required String password,
   }) async {
-    await updateApiConfig(baseUrl: baseUrl, email: email, password: password);
+    final normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+    final normalizedEmail = email.trim();
 
     final data = await ApiClient(
-      baseUrl: _baseUrl,
-    ).login(email: email, password: password);
+      baseUrl: normalizedBaseUrl,
+    ).login(email: normalizedEmail, password: password);
 
     final payload = data['data'] as Map<String, dynamic>;
+    _baseUrl = normalizedBaseUrl;
+    _apiEmail = normalizedEmail;
+    _apiPassword = password;
     _token = payload['token'] as String;
     _user = (payload['user'] as Map).cast<String, dynamic>();
 
-    await _storage.write(key: 'token', value: _token);
+    await _storage.write(key: _baseUrlKey, value: _baseUrl);
+    await _storage.write(key: _apiEmailKey, value: _apiEmail);
+    await _storage.write(key: _apiPasswordKey, value: _apiPassword);
+    await _storage.write(key: _tokenKey, value: _token);
     await _persistUser();
+    await _syncBiometricAssociation();
 
     notifyListeners();
   }
@@ -143,17 +172,19 @@ class AppController extends ChangeNotifier {
     _apiPassword = password;
     _user = (payload['user'] as Map).cast<String, dynamic>();
 
-    await _storage.write(key: 'api_password', value: _apiPassword);
+    await _storage.write(key: _apiPasswordKey, value: _apiPassword);
     await _persistUser();
+    await _syncBiometricAssociation();
     notifyListeners();
   }
 
   Future<void> setBiometricEnabled(bool value) async {
     _biometricEnabled = value;
     await _storage.write(
-      key: 'biometric_enabled',
+      key: _biometricEnabledKey,
       value: value ? 'true' : 'false',
     );
+    await _syncBiometricAssociation();
     notifyListeners();
   }
 
@@ -197,25 +228,28 @@ class AppController extends ChangeNotifier {
     final preservedEmail = _apiEmail;
     final preservedPassword = _apiPassword;
     final preservedBiometricEnabled = _biometricEnabled;
+    final preservedBiometricAssociation = _biometricAssociation;
 
     _token = null;
     _user = null;
     _apiEmail = '';
     _apiPassword = '';
     _biometricEnabled = false;
+    _biometricAssociation = null;
     _baseUrl = defaultBaseUrl;
 
     try {
       await _storage.deleteAll();
     } catch (_) {
-      await _storage.delete(key: 'token');
-      await _storage.delete(key: 'user_name');
-      await _storage.delete(key: 'user_email');
-      await _storage.delete(key: 'user_payload');
-      await _storage.delete(key: 'api_email');
-      await _storage.delete(key: 'api_password');
-      await _storage.delete(key: 'base_url');
-      await _storage.delete(key: 'biometric_enabled');
+      await _storage.delete(key: _tokenKey);
+      await _storage.delete(key: _userNameKey);
+      await _storage.delete(key: _userEmailKey);
+      await _storage.delete(key: _userPayloadKey);
+      await _storage.delete(key: _apiEmailKey);
+      await _storage.delete(key: _apiPasswordKey);
+      await _storage.delete(key: _baseUrlKey);
+      await _storage.delete(key: _biometricEnabledKey);
+      await _storage.delete(key: _biometricAccountKey);
     }
 
     if (preserveQuickLogin) {
@@ -223,23 +257,63 @@ class AppController extends ChangeNotifier {
       _apiEmail = preservedEmail;
       _apiPassword = preservedPassword;
       _biometricEnabled = preservedBiometricEnabled;
+      _biometricAssociation = preservedBiometricAssociation;
 
-      await _storage.write(key: 'base_url', value: _baseUrl);
-      await _storage.write(key: 'api_email', value: _apiEmail);
-      await _storage.write(key: 'api_password', value: _apiPassword);
+      await _storage.write(key: _baseUrlKey, value: _baseUrl);
+      await _storage.write(key: _apiEmailKey, value: _apiEmail);
+      await _storage.write(key: _apiPasswordKey, value: _apiPassword);
       await _storage.write(
-        key: 'biometric_enabled',
+        key: _biometricEnabledKey,
         value: _biometricEnabled ? 'true' : 'false',
       );
+      if (_biometricAssociation != null && _biometricAssociation!.isNotEmpty) {
+        await _storage.write(
+          key: _biometricAccountKey,
+          value: _biometricAssociation,
+        );
+      }
     }
   }
 
   Future<void> _persistUser() async {
-    await _storage.write(key: 'user_name', value: _user?['name']?.toString());
-    await _storage.write(key: 'user_email', value: _user?['email']?.toString());
+    await _storage.write(key: _userNameKey, value: _user?['name']?.toString());
     await _storage.write(
-      key: 'user_payload',
+      key: _userEmailKey,
+      value: _user?['email']?.toString(),
+    );
+    await _storage.write(
+      key: _userPayloadKey,
       value: jsonEncode(_user ?? <String, dynamic>{}),
     );
+  }
+
+  Future<void> _syncBiometricAssociation() async {
+    if (!_biometricEnabled || !hasCachedCredentials) {
+      _biometricAssociation = null;
+      await _storage.delete(key: _biometricAccountKey);
+      return;
+    }
+
+    _biometricAssociation = _accountAssociationKey(
+      baseUrl: _baseUrl,
+      email: _apiEmail,
+      user: _user,
+    );
+    await _storage.write(
+      key: _biometricAccountKey,
+      value: _biometricAssociation,
+    );
+  }
+
+  String _accountAssociationKey({
+    required String baseUrl,
+    required String email,
+    Map<String, dynamic>? user,
+  }) {
+    final userId = user?['id']?.toString().trim() ?? '';
+    final userEmail =
+        user?['email']?.toString().trim().toLowerCase() ??
+        email.trim().toLowerCase();
+    return '${normalizeBaseUrl(baseUrl)}|$userId|$userEmail';
   }
 }

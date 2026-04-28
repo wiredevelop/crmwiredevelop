@@ -13,7 +13,6 @@ use App\Models\Product;
 use App\Models\Wallet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 use App\Support\StripeCheckoutService;
 
 class ClientWalletApiController extends Controller
@@ -87,50 +86,6 @@ class ClientWalletApiController extends Controller
             'product_id' => ['required', 'integer', 'exists:products,id'],
             'pack_item_id' => ['required', 'integer', 'exists:pack_items,id'],
             'quantity' => ['nullable', 'integer', 'min:1', 'max:99'],
-            'wants_invoice' => ['required', 'boolean'],
-            'billing_name' => [
-                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
-                'nullable',
-                'string',
-                'max:120',
-            ],
-            'billing_email' => [
-                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
-                'nullable',
-                'email',
-                'max:160',
-            ],
-            'billing_phone' => ['nullable', 'string', 'regex:/^[0-9]{9}$/'],
-            'billing_vat' => [
-                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
-                'nullable',
-                'string',
-                'regex:/^[0-9]{9}$/',
-            ],
-            'billing_address' => [
-                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
-                'nullable',
-                'string',
-                'max:160',
-            ],
-            'billing_postal_code' => [
-                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
-                'nullable',
-                'string',
-                'regex:/^[0-9]{4}-[0-9]{3}$/',
-            ],
-            'billing_city' => [
-                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
-                'nullable',
-                'string',
-                'max:80',
-            ],
-            'billing_country' => [
-                Rule::requiredIf(fn () => (bool) $request->boolean('wants_invoice')),
-                'nullable',
-                'string',
-                'regex:/^[A-Za-z]{2}$/',
-            ],
         ]);
 
         $client = $request->user()?->client;
@@ -148,8 +103,8 @@ class ClientWalletApiController extends Controller
             $product,
             $packItem,
             $data['quantity'] ?? 1,
-            (bool) $data['wants_invoice'],
-            $data
+            false,
+            []
         );
 
         return $this->success([

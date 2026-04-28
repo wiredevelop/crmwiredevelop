@@ -19,6 +19,10 @@ configurations.configureEach {
     exclude(module = "bcprov-jdk15to18")
 }
 
+dependencies {
+    implementation("org.slf4j:slf4j-nop:1.7.36")
+}
+
 android {
     namespace = "app.wiredevelop.pt"
     compileSdk = flutter.compileSdkVersion
@@ -72,6 +76,10 @@ android {
                 } else {
                     signingConfigs.getByName("debug")
                 }
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }
