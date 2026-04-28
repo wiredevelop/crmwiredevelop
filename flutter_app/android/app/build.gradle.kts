@@ -76,6 +76,10 @@ android {
                 } else {
                     signingConfigs.getByName("debug")
                 }
+            // R8 is currently exhausting heap in CI with the Stripe stack.
+            // Keep release builds unminified until the dependency graph is reduced.
+            isMinifyEnabled = false
+            isShrinkResources = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
