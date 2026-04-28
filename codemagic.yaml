@@ -52,8 +52,14 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      groups:
+        - appstore_credentials
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.wiredevelop.wireCrmApp
       vars:
         PROJECT_DIR: flutter_app
+        BUNDLE_ID_IOS: com.wiredevelop.wireCrmApp
     cache:
       cache_paths:
         - $HOME/.pub-cache
@@ -76,10 +82,26 @@ workflows:
         script: |
           cd "$PROJECT_DIR/ios"
           pod install
-      - name: Build unsigned iOS app
+      - name: Apply iOS provisioning profiles
+        script: |
+          cd "$PROJECT_DIR/ios"
+          xcode-project use-profiles
+      - name: Build signed iOS IPA
         script: |
           cd "$PROJECT_DIR"
-          flutter build ios --release --no-codesign
+          flutter build ipa \
+            --release \
+            --build-number="$BUILD_NUMBER" \
+            --export-options-plist=/Users/builder/export_options.plist
     artifacts:
-      - flutter_app/build/ios/iphoneos/*.app
+      - flutter_app/build/ios/ipa/*.ipa
       - flutter_app/build/ios/archive/*.xcarchive
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_app/build/**/outputs/**/*.dSYM.zip
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
+        expire_build_submitted_for_review: true
