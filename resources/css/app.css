@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* REMOVE O GAP GLOBAL DO INERTIA / BREEZE */
+#app {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+body {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+html, body {
+    @apply p-0 m-0;
+}
+
+/* Rich text editor list styles */
+.rte ul,
+.rte ol {
+    list-style-position: outside !important;
+    padding-left: 1.5rem !important;
+    margin: 0 0 0.5rem 0 !important;
+}
+
+.rte ul {
+    list-style-type: disc !important;
+}
+
+.rte ol {
+    list-style-type: decimal !important;
+}
+
+.rte li {
+    display: list-item !important;
+    margin: 0.125rem 0 !important;
+}
