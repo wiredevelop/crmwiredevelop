@@ -1,0 +1,107 @@
+workflows:
+  wire-crm-android:
+    name: Wire CRM Android
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      java: 17
+      groups:
+        - keystore_credentials
+      vars:
+        PROJECT_DIR: flutter_app
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $PROJECT_DIR/.dart_tool
+    scripts:
+      - name: Set up Android keystore
+        script: |
+          echo "$CM_KEYSTORE" | base64 --decode > "$CM_KEYSTORE_PATH"
+      - name: Install Flutter dependencies
+        script: |
+          cd "$PROJECT_DIR"
+          flutter pub get
+      - name: Static analysis
+        script: |
+          cd "$PROJECT_DIR"
+          flutter analyze
+      - name: Run widget tests
+        script: |
+          cd "$PROJECT_DIR"
+          flutter test
+      - name: Build Android APK
+        script: |
+          cd "$PROJECT_DIR"
+          flutter build apk --release
+      - name: Build Android App Bundle
+        script: |
+          cd "$PROJECT_DIR"
+          flutter build appbundle --release
+    artifacts:
+      - flutter_app/build/**/outputs/**/*.apk
+      - flutter_app/build/**/outputs/**/*.aab
+      - flutter_app/build/**/reports/**/*.html
+
+  wire-crm-ios:
+    name: Wire CRM iOS
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - appstore_credentials
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.wiredevelop.wireCrmApp
+      vars:
+        PROJECT_DIR: flutter_app
+        BUNDLE_ID_IOS: com.wiredevelop.wireCrmApp
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+        - $PROJECT_DIR/.dart_tool
+    scripts:
+      - name: Install Flutter dependencies
+        script: |
+          cd "$PROJECT_DIR"
+          flutter pub get
+      - name: Static analysis
+        script: |
+          cd "$PROJECT_DIR"
+          flutter analyze
+      - name: Run widget tests
+        script: |
+          cd "$PROJECT_DIR"
+          flutter test
+      - name: Install CocoaPods dependencies
+        script: |
+          cd "$PROJECT_DIR/ios"
+          pod install
+      - name: Apply iOS provisioning profiles
+        script: |
+          cd "$PROJECT_DIR/ios"
+          xcode-project use-profiles
+      - name: Build signed iOS IPA
+        script: |
+          cd "$PROJECT_DIR"
+          flutter build ipa \
+            --release \
+            --build-number="$BUILD_NUMBER" \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - flutter_app/build/ios/ipa/*.ipa
+      - flutter_app/build/ios/archive/*.xcarchive
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_app/build/**/outputs/**/*.dSYM.zip
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: true
+        expire_build_submitted_for_review: true
