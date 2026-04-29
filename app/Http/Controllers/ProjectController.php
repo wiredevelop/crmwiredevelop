@@ -206,7 +206,7 @@ class ProjectController extends Controller
         $this->ensureProjectOwnership($project);
         $this->abortIfClientUser();
 
-        $project->load(['client', 'quote', 'invoice', 'quote.quoteProducts']);
+        $project->load(['client', 'quote', 'invoice', 'quote.quoteProducts', 'messages.user']);
 
         $clients = Client::orderBy('name')->get(['id', 'name', 'company']);
 

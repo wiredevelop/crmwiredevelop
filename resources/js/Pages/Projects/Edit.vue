@@ -131,6 +131,36 @@ const removeImport = (idx) => {
     form.imports.splice(idx, 1)
 }
 
+const projectMessages = ref([...(project.messages || [])].reverse())
+const messageForm = useForm({
+    type: 'message',
+    body: '',
+})
+const sendingMessage = ref(false)
+
+const sendProjectMessage = async ({ type = 'message', body = null } = {}) => {
+    const payload = {
+        type,
+        body: (body ?? messageForm.body).trim(),
+    }
+
+    if (!payload.body) return
+
+    sendingMessage.value = true
+    try {
+        const { data } = await window.axios.post(`/api/v1/projects/${project.id}/messages`, payload)
+        const message = data?.data?.message
+        if (message) {
+            projectMessages.value.push(message)
+        }
+        messageForm.reset()
+    } catch (error) {
+        alert(error?.response?.data?.message || 'Nao foi possível enviar a mensagem.')
+    } finally {
+        sendingMessage.value = false
+    }
+}
+
 const totalEstimated = computed(() => {
     const dev = parseFloat(form.price_development) || 0
     const maint = form.maintenance_enabled ? (parseFloat(form.price_maintenance_monthly) || 0) : 0
@@ -393,6 +423,67 @@ const destroyProject = () => {
             <div class="bg-white p-6 rounded shadow">
                 <h2 class="font-semibold text-lg mb-2">Prazos & Condições</h2>
                 <textarea v-model="form.terms" rows="8" class="w-full border rounded p-2 font-mono"></textarea>
+            </div>
+
+            <div class="bg-white p-6 rounded shadow space-y-4">
+                <div class="flex items-center justify-between gap-3">
+                    <h2 class="font-semibold text-lg">Comunicação do projeto</h2>
+                    <button
+                        type="button"
+                        class="text-sm border px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-50"
+                        :disabled="sendingMessage"
+                        @click="sendProjectMessage({
+                            type: 'proof_request',
+                            body: 'Pedido de prova: por favor partilha atualização, captura de ecrã ou vídeo deste ponto do projeto.'
+                        })"
+                    >
+                        Pedir prova
+                    </button>
+                </div>
+
+                <div v-if="projectMessages.length" class="space-y-3">
+                    <div
+                        v-for="message in projectMessages"
+                        :key="message.id"
+                        class="rounded border p-4"
+                        :class="message.sender_role === 'client' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'"
+                    >
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="font-medium text-sm">
+                                {{ message.sender_name || (message.sender_role === 'client' ? 'Cliente' : 'WireDevelop') }}
+                                <span class="ml-2 text-xs uppercase tracking-wide text-gray-500">{{ message.type }}</span>
+                            </div>
+                            <div class="text-xs text-gray-500">
+                                {{ new Date(message.created_at).toLocaleString('pt-PT') }}
+                            </div>
+                        </div>
+                        <div class="mt-2 whitespace-pre-wrap text-sm text-gray-700">{{ message.body }}</div>
+                    </div>
+                </div>
+
+                <div v-else class="text-sm text-gray-500">
+                    Sem mensagens ainda. Usa esta área para alinhar o desenvolvimento com o cliente.
+                </div>
+
+                <div class="space-y-3 border-t pt-4">
+                    <textarea
+                        v-model="messageForm.body"
+                        rows="4"
+                        class="w-full border rounded p-3"
+                        placeholder="Escreve aqui atualização, pedido ou resposta..."
+                    />
+
+                    <div class="flex justify-end">
+                        <button
+                            type="button"
+                            class="bg-[#015557] text-white px-4 py-2 rounded hover:bg-[#014244] disabled:opacity-50"
+                            :disabled="sendingMessage || !messageForm.body.trim()"
+                            @click="sendProjectMessage()"
+                        >
+                            {{ sendingMessage ? 'A enviar...' : 'Enviar mensagem' }}
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <div class="flex justify-end">

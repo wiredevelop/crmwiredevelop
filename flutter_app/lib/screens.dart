@@ -5294,6 +5294,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     final title = invoice?['number']?.toString() ?? 'Documento';
     final items = (invoice?['items'] as List?)?.cast<dynamic>() ?? const [];
     final isPaid = invoice?['status']?.toString() == 'pago';
+    final isClientUser = widget.controller.isClientUser;
 
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
@@ -5428,7 +5429,9 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                                                       ),
                                                       const SizedBox(height: 6),
                                                       Text(
-                                                        'Qtd: ${item['quantity'] ?? '—'} · Unitário: ${money(item['unit_price'])} · Total: ${money(item['total'])}',
+                                                        isClientUser
+                                                            ? 'Total: ${money(item['total'])}'
+                                                            : 'Qtd: ${item['quantity'] ?? '—'} · Unitário: ${money(item['unit_price'])} · Total: ${money(item['total'])}',
                                                         style: const TextStyle(
                                                           color: Color(
                                                             0xFF1A5A5D,
@@ -5454,46 +5457,50 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                                             ),
                                             if (isExpanded) ...[
                                               const SizedBox(height: 10),
-                                              _invoiceItemDetailRow(
-                                                'Origem',
-                                                _invoiceItemSourceLabel(item),
-                                              ),
-                                              if (item['source_id'] != null)
+                                              if (!isClientUser) ...[
                                                 _invoiceItemDetailRow(
-                                                  'Ref.',
-                                                  '#${item['source_id']}',
+                                                  'Origem',
+                                                  _invoiceItemSourceLabel(item),
                                                 ),
-                                              if (sourceProject != null)
-                                                _invoiceItemDetailRow(
-                                                  'Projeto',
-                                                  '${_detailValue(sourceProject['name'])} · ${_detailValue(sourceProject['status'])}',
-                                                ),
-                                              if (sourceTransaction?['product'] !=
-                                                  null)
-                                                _invoiceItemDetailRow(
-                                                  'Produto',
-                                                  _detailValue(
-                                                    sourceTransaction?['product']?['name'],
+                                                if (item['source_id'] != null)
+                                                  _invoiceItemDetailRow(
+                                                    'Ref.',
+                                                    '#${item['source_id']}',
                                                   ),
-                                                ),
-                                              if (sourceTransaction?['pack_item'] !=
-                                                  null)
-                                                _invoiceItemDetailRow(
-                                                  'Pack',
-                                                  _invoiceItemPackSummary(item),
-                                                ),
-                                              if (sourceTransaction?['description'] !=
-                                                      null &&
-                                                  sourceTransaction!['description']
-                                                          .toString() !=
-                                                      item['description']
-                                                          ?.toString())
-                                                _invoiceItemDetailRow(
-                                                  'Movimento',
-                                                  _detailValue(
-                                                    sourceTransaction['description'],
+                                                if (sourceProject != null)
+                                                  _invoiceItemDetailRow(
+                                                    'Projeto',
+                                                    '${_detailValue(sourceProject['name'])} · ${_detailValue(sourceProject['status'])}',
                                                   ),
-                                                ),
+                                                if (sourceTransaction?['product'] !=
+                                                    null)
+                                                  _invoiceItemDetailRow(
+                                                    'Produto',
+                                                    _detailValue(
+                                                      sourceTransaction?['product']?['name'],
+                                                    ),
+                                                  ),
+                                                if (sourceTransaction?['pack_item'] !=
+                                                    null)
+                                                  _invoiceItemDetailRow(
+                                                    'Pack',
+                                                    _invoiceItemPackSummary(
+                                                      item,
+                                                    ),
+                                                  ),
+                                                if (sourceTransaction?['description'] !=
+                                                        null &&
+                                                    sourceTransaction!['description']
+                                                            .toString() !=
+                                                        item['description']
+                                                            ?.toString())
+                                                  _invoiceItemDetailRow(
+                                                    'Movimento',
+                                                    _detailValue(
+                                                      sourceTransaction['description'],
+                                                    ),
+                                                  ),
+                                              ],
                                               if (intervention != null) ...[
                                                 _invoiceItemDetailRow(
                                                   'Intervenção',
@@ -5507,13 +5514,14 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                                                     intervention['total_seconds'],
                                                   ),
                                                 ),
-                                                _invoiceItemDetailRow(
-                                                  'Valor/h',
-                                                  intervention['hourly_rate'] !=
-                                                          null
-                                                      ? '${money(intervention['hourly_rate'])}/h'
-                                                      : '—',
-                                                ),
+                                                if (!isClientUser)
+                                                  _invoiceItemDetailRow(
+                                                    'Valor/h',
+                                                    intervention['hourly_rate'] !=
+                                                            null
+                                                        ? '${money(intervention['hourly_rate'])}/h'
+                                                        : '—',
+                                                  ),
                                                 _invoiceItemDetailRow(
                                                   'Obs. início',
                                                   _detailValue(

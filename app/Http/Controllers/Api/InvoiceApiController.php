@@ -70,15 +70,20 @@ class InvoiceApiController extends Controller
     {
         $this->ensureInvoiceOwnership($invoice);
 
-        $invoice->load([
+        $relations = [
             'client',
             'project',
             'installments',
             'items.sourceTransaction.product',
             'items.sourceTransaction.packItem',
             'items.sourceTransaction.intervention',
-            'items.sourceProject',
-        ]);
+        ];
+
+        if (! $this->isClientUser()) {
+            $relations[] = 'items.sourceProject';
+        }
+
+        $invoice->load($relations);
 
         return $this->success([
             'invoice' => new InvoiceResource($invoice),

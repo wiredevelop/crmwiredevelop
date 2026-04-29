@@ -9,6 +9,8 @@ class InvoiceItemResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $isClientUser = (bool) $request->user()?->isClientUser();
+
         return [
             'id' => $this->id,
             'invoice_id' => $this->invoice_id,
@@ -24,15 +26,15 @@ class InvoiceItemResource extends JsonResource
                     'id' => $this->sourceTransaction->id,
                     'description' => $this->sourceTransaction->description,
                     'seconds' => $this->sourceTransaction->seconds,
-                    'amount' => $this->sourceTransaction->amount,
-                    'product' => $this->sourceTransaction->relationLoaded('product') && $this->sourceTransaction->product
+                    'amount' => $isClientUser ? null : $this->sourceTransaction->amount,
+                    'product' => ! $isClientUser && $this->sourceTransaction->relationLoaded('product') && $this->sourceTransaction->product
                         ? [
                             'id' => $this->sourceTransaction->product->id,
                             'name' => $this->sourceTransaction->product->name,
                             'type' => $this->sourceTransaction->product->type,
                         ]
                         : null,
-                    'pack_item' => $this->sourceTransaction->relationLoaded('packItem') && $this->sourceTransaction->packItem
+                    'pack_item' => ! $isClientUser && $this->sourceTransaction->relationLoaded('packItem') && $this->sourceTransaction->packItem
                         ? [
                             'hours' => $this->sourceTransaction->packItem->hours,
                             'pack_price' => $this->sourceTransaction->packItem->pack_price,
@@ -47,14 +49,17 @@ class InvoiceItemResource extends JsonResource
                             'notes' => $this->sourceTransaction->intervention->notes,
                             'finish_notes' => $this->sourceTransaction->intervention->finish_notes,
                             'is_pack' => (bool) $this->sourceTransaction->intervention->is_pack,
-                            'hourly_rate' => $this->sourceTransaction->intervention->hourly_rate,
+                            'hourly_rate' => $isClientUser ? null : $this->sourceTransaction->intervention->hourly_rate,
                             'total_seconds' => (int) $this->sourceTransaction->intervention->total_seconds,
                         ]
                         : null,
                 ]
             ),
             'source_project' => $this->when(
-                $this->relationLoaded('sourceProject') && $this->sourceProject,
+                ! $isClientUser
+                && $this->source_type === 'project'
+                && $this->relationLoaded('sourceProject')
+                && $this->sourceProject,
                 fn () => [
                     'id' => $this->sourceProject->id,
                     'name' => $this->sourceProject->name,
