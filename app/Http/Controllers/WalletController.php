@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\Product;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
+use App\Support\StripeCheckoutService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,14 @@ class WalletController extends Controller
 {
     public function index(Request $request): Response
     {
+        if ($request->filled('session_id')) {
+            app(StripeCheckoutService::class)->syncCheckoutSession($request->string('session_id')->toString());
+        }
+
+        if ($request->filled('token')) {
+            app(StripeCheckoutService::class)->cancelByToken($request->string('token')->toString());
+        }
+
         $clients = Client::orderBy('name')->get(['id', 'name', 'company']);
         $selectedClientId = $request->query('client_id');
 
@@ -68,6 +77,7 @@ class WalletController extends Controller
                 'product:id,name',
                 'packItem:id,product_id,hours,pack_price,validity_months',
                 'intervention:id,type',
+                'invoice:id,number,status',
             ])
                 ->where('wallet_id', $wallet->id)
                 ->orderByDesc('transaction_at')
@@ -82,6 +92,8 @@ class WalletController extends Controller
             'wallet' => $wallet,
             'transactions' => $transactions,
             'packs' => $packs,
+            'stripeAvailable' => (bool) config('services.stripe.secret_key')
+                && (bool) config('services.stripe.public_key'),
         ]);
     }
 
@@ -153,9 +165,18 @@ class WalletController extends Controller
         return back()->with('success', 'Transação registada.');
     }
 
-    public function destroyTransaction(WalletTransaction $transaction): RedirectResponse
+    public function destroyTransaction(
+        WalletTransaction $transaction,
+        StripeCheckoutService $stripeCheckout
+    ): RedirectResponse
     {
         $transaction->load('wallet');
+
+        if ($this->isPendingStripeTransaction($transaction)) {
+            $stripeCheckout->cancelPaymentIntent($transaction->payment_reference);
+
+            return back()->with('success', 'Transação pendente cancelada.');
+        }
 
         DB::transaction(function () use ($transaction) {
             if ($transaction->invoice_id) {
@@ -177,11 +198,11 @@ class WalletController extends Controller
 
             $wallet = $transaction->wallet;
             if ($wallet) {
-                if ($transaction->seconds !== null) {
+                if ($this->transactionAffectsWalletBalance($transaction) && $transaction->seconds !== null) {
                     $wallet->balance_seconds -= (int) $transaction->seconds;
                 }
 
-                if ($transaction->amount !== null) {
+                if ($this->transactionAffectsWalletBalance($transaction) && $transaction->amount !== null) {
                     $wallet->balance_amount = (float) $wallet->balance_amount - (float) $transaction->amount;
                 }
 
@@ -192,5 +213,25 @@ class WalletController extends Controller
         });
 
         return back()->with('success', 'Transação removida.');
+    }
+
+    private function isPendingStripeTransaction(WalletTransaction $transaction): bool
+    {
+        $payment = is_array($transaction->payment_metadata) ? $transaction->payment_metadata : [];
+
+        return $transaction->payment_provider === 'stripe'
+            && ($payment['status'] ?? null) === 'pending'
+            && is_string($transaction->payment_reference)
+            && $transaction->payment_reference !== '';
+    }
+
+    private function transactionAffectsWalletBalance(WalletTransaction $transaction): bool
+    {
+        $payment = is_array($transaction->payment_metadata) ? $transaction->payment_metadata : [];
+
+        return ! (
+            $transaction->payment_provider === 'stripe'
+            && ($payment['status'] ?? null) === 'pending'
+        );
     }
 }

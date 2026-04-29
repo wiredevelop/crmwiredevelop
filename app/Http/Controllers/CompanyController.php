@@ -34,6 +34,7 @@ class CompanyController extends Controller
             'iban' => ['nullable', 'string', 'max:80'],
             'bank_name' => ['nullable', 'string', 'max:120'],
             'swift' => ['nullable', 'string', 'max:80'],
+            'client_checkout_method' => ['required', 'in:stripe,manual'],
             'payment_notes' => ['nullable', 'string', 'max:2000'],
             'payment_methods' => ['nullable', 'array'],
             'payment_methods.*.label' => ['nullable', 'string', 'max:80'],

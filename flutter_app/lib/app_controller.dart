@@ -6,6 +6,23 @@ import 'package:local_auth/local_auth.dart';
 
 import 'services/api_client.dart';
 
+class WalletCheckoutReturn {
+  const WalletCheckoutReturn({
+    required this.status,
+    required this.target,
+    this.sessionId,
+    this.token,
+  });
+
+  final String status;
+  final String target;
+  final String? sessionId;
+  final String? token;
+
+  bool get isSuccess => status == 'success';
+  bool get isCancel => status == 'cancel';
+}
+
 class AppController extends ChangeNotifier {
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
   final LocalAuthentication _localAuth = LocalAuthentication();
@@ -33,6 +50,8 @@ class AppController extends ChangeNotifier {
   Map<String, dynamic>? _user;
   bool _biometricEnabled = false;
   String? _biometricAssociation;
+  WalletCheckoutReturn? _pendingWalletCheckoutReturn;
+  int _walletCheckoutReturnVersion = 0;
 
   bool get isReady => _isReady;
   bool get isAuthenticated => _token != null && _token!.isNotEmpty;
@@ -50,6 +69,9 @@ class AppController extends ChangeNotifier {
       (_biometricAssociation?.isNotEmpty ?? false);
   bool get mustChangePassword => _user?['must_change_password'] == true;
   bool get isClientUser => _user?['role'] == 'client';
+  WalletCheckoutReturn? get pendingWalletCheckoutReturn =>
+      _pendingWalletCheckoutReturn;
+  int get walletCheckoutReturnVersion => _walletCheckoutReturnVersion;
 
   ApiClient get client => ApiClient(baseUrl: _baseUrl, token: _token);
 
@@ -210,6 +232,39 @@ class AppController extends ChangeNotifier {
 
   Future<void> loginWithCachedCredentials() async {
     await login(baseUrl: _baseUrl, email: _apiEmail, password: _apiPassword);
+  }
+
+  void handleIncomingUri(Uri uri) {
+    final isWalletReturn =
+        uri.scheme == 'wirecrm' &&
+        uri.host == 'wallet' &&
+        uri.path == '/checkout-return';
+
+    if (!isWalletReturn) {
+      return;
+    }
+
+    final status = uri.queryParameters['status']?.trim();
+    if (status != 'success' && status != 'cancel') {
+      return;
+    }
+
+    _pendingWalletCheckoutReturn = WalletCheckoutReturn(
+      status: status!,
+      target: uri.queryParameters['target']?.trim().isNotEmpty == true
+          ? uri.queryParameters['target']!.trim()
+          : 'wallet',
+      sessionId: uri.queryParameters['session_id']?.trim(),
+      token: uri.queryParameters['token']?.trim(),
+    );
+    _walletCheckoutReturnVersion += 1;
+    notifyListeners();
+  }
+
+  WalletCheckoutReturn? consumePendingWalletCheckoutReturn() {
+    final pending = _pendingWalletCheckoutReturn;
+    _pendingWalletCheckoutReturn = null;
+    return pending;
   }
 
   Future<void> logout() async {

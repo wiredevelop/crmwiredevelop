@@ -19,6 +19,7 @@ const form = useForm({
     iban: company.iban || '',
     bank_name: company.bank_name || '',
     swift: company.swift || '',
+    client_checkout_method: company.client_checkout_method || 'stripe',
     payment_notes: company.payment_notes || '',
     payment_methods: Array.isArray(company.payment_methods) ? company.payment_methods : []
 })
@@ -92,6 +93,16 @@ const removeMethod = (index) => {
 
                 <div class="border-t pt-5">
                     <h2 class="text-lg font-semibold mb-3">Dados para pagamento</h2>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium mb-1">Método em destaque no checkout</label>
+                        <select v-model="form.client_checkout_method" class="w-full border rounded px-3 py-2 text-sm">
+                            <option value="stripe">Stripe</option>
+                            <option value="manual">Manual</option>
+                        </select>
+                        <p class="mt-1 text-xs text-gray-500">
+                            Os dois métodos podem coexistir. Esta opção só define qual deles fica destacado primeiro quando ambos estiverem configurados.
+                        </p>
+                    </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                             <label class="block text-sm font-medium mb-1">IBAN</label>

@@ -5,6 +5,9 @@ import { computed, ref } from 'vue'
 const props = defineProps({
     wallet: Object,
     interventions: Array,
+    checkoutMethod: String,
+    stripeAvailable: Boolean,
+    manualPayment: Object,
 })
 
 const searchTransactions = ref('')
@@ -39,6 +42,12 @@ const interventions = computed(() => {
     if (!term) return list
     return list.filter((item) => JSON.stringify(item).toLowerCase().includes(term))
 })
+
+const manualMethods = computed(() => Array.isArray(props.manualPayment?.methods) ? props.manualPayment.methods : [])
+const hasManualInfo = computed(() => {
+    const notes = props.manualPayment?.notes?.trim?.() ?? ''
+    return notes.length > 0 || manualMethods.value.length > 0
+})
 </script>
 
 <template>
@@ -60,6 +69,29 @@ const interventions = computed(() => {
                     <p class="text-xs text-gray-500">Compras / transações</p>
                     <p class="mt-2 text-2xl font-semibold">{{ (wallet?.transactions?.length ?? 0) }}</p>
                 </div>
+            </div>
+
+            <div class="bg-white rounded shadow p-6">
+                <h2 class="font-semibold">Opções de pagamento</h2>
+                <p v-if="stripeAvailable" class="mt-2 text-sm text-emerald-700">
+                    O checkout Stripe está disponível para pagamento online imediato.
+                </p>
+                <p v-else class="mt-2 text-sm text-amber-700">
+                    O checkout Stripe está indisponível neste servidor neste momento.
+                </p>
+                <div v-if="hasManualInfo" class="mt-3 space-y-2 text-sm text-gray-700">
+                    <p>Também estão disponíveis instruções de pagamento manual.</p>
+                    <p v-if="manualPayment?.notes">{{ manualPayment.notes }}</p>
+                    <div v-if="manualMethods.length" class="space-y-1">
+                        <div v-for="(method, index) in manualMethods" :key="index">
+                            <span class="font-medium">{{ method.label || 'Método' }}:</span>
+                            {{ method.value || '—' }}
+                        </div>
+                    </div>
+                </div>
+                <p v-else-if="!stripeAvailable" class="mt-3 text-sm text-gray-600">
+                    Não existem instruções manuais configuradas.
+                </p>
             </div>
 
             <div class="bg-white rounded shadow p-6">

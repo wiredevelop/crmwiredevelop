@@ -11,6 +11,7 @@ use App\Http\Resources\Api\WalletTransactionResource;
 use App\Models\Intervention;
 use App\Models\Product;
 use App\Models\Wallet;
+use App\Support\CompanySettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use App\Support\StripeCheckoutService;
@@ -26,7 +27,13 @@ class ClientWalletApiController extends Controller
 
         $client = request()->user()?->client;
         abort_if(! $client, 403);
-        app(StripeCheckoutService::class)->syncPendingForClient($client);
+        $company = CompanySettings::get();
+        $stripeAvailable = (bool) config('services.stripe.secret_key')
+            && (bool) config('services.stripe.public_key');
+
+        if ($stripeAvailable) {
+            app(StripeCheckoutService::class)->syncPendingForClient($client);
+        }
 
         $wallet = Wallet::firstOrCreate(
             ['client_id' => $this->currentClientId()],
@@ -75,6 +82,14 @@ class ClientWalletApiController extends Controller
             'transactions' => WalletTransactionResource::collection($wallet->transactions),
             'interventions' => InterventionResource::collection($interventions),
             'packs' => $packs,
+            'checkout_method' => in_array($company['client_checkout_method'] ?? null, ['stripe', 'manual'], true)
+                ? $company['client_checkout_method']
+                : 'stripe',
+            'stripe_available' => $stripeAvailable,
+            'manual_payment' => [
+                'notes' => $company['payment_notes'] ?? '',
+                'methods' => is_array($company['payment_methods'] ?? null) ? $company['payment_methods'] : [],
+            ],
         ]);
     }
 
@@ -90,6 +105,7 @@ class ClientWalletApiController extends Controller
 
         $client = $request->user()?->client;
         abort_if(! $client, 403);
+
         if (! config('services.stripe.secret_key') || ! config('services.stripe.public_key')) {
             return $this->error('Checkout Stripe indisponível de momento.', [], 503);
         }
@@ -98,26 +114,30 @@ class ClientWalletApiController extends Controller
         $packItem = $product->packItems->firstWhere('id', (int) $data['pack_item_id']);
         abort_if(! $packItem, 422, 'Opção de pack inválida.');
 
-        $checkout = $stripeCheckout->createPendingPackPaymentSheet(
+        $successUrl = url('/checkout/stripe/sucesso?source=mobile_app&target=wallet&session_id={CHECKOUT_SESSION_ID}');
+        $cancelUrl = url('/checkout/stripe/cancelado?source=mobile_app&target=wallet');
+
+        $checkout = $stripeCheckout->createPendingPackCheckout(
             $client,
             $product,
             $packItem,
             $data['quantity'] ?? 1,
+            $successUrl,
+            $cancelUrl,
             false,
             []
         );
 
         return $this->success([
-            'payment_intent_id' => $checkout['paymentIntent']->id,
-            'payment_intent_client_secret' => $checkout['paymentIntent']->client_secret,
-            'customer_id' => $checkout['customer']->id,
-            'customer_ephemeral_key_secret' => $checkout['ephemeralKey']->secret,
+            'checkout_session_id' => $checkout['session']->id,
+            'checkout_url' => $checkout['session']->url,
+            'cancel_token' => data_get($checkout['transaction']->payment_metadata, 'cancel_token'),
             'transaction_id' => $checkout['transaction']->id,
             'invoice_id' => $checkout['invoice']->id,
-            'publishable_key' => config('services.stripe.public_key'),
             'amount' => (float) $checkout['invoice']->total,
             'currency' => 'eur',
-        ], 'Pagamento preparado e documento pendente registado.');
+            'available_payment_methods' => [],
+        ], 'Checkout Stripe preparado e documento pendente registado.');
     }
 
     public function finalize(Request $request, StripeCheckoutService $stripeCheckout): JsonResponse
@@ -125,16 +145,37 @@ class ClientWalletApiController extends Controller
         abort_unless($this->isClientUser(), 403);
 
         $data = $request->validate([
-            'payment_intent_id' => ['required', 'string', 'max:255'],
+            'payment_intent_id' => ['nullable', 'string', 'max:255'],
+            'session_id' => ['nullable', 'string', 'max:255'],
         ]);
 
         $client = $request->user()?->client;
         abort_if(! $client, 403);
 
-        $stripeCheckout->syncPaymentIntent($data['payment_intent_id']);
+        $paymentIntentId = $data['payment_intent_id'] ?? null;
+        $sessionId = $data['session_id'] ?? null;
+
+        if ($sessionId) {
+            $stripeCheckout->syncCheckoutSession($sessionId);
+        }
+
+        if ($paymentIntentId) {
+            $stripeCheckout->syncPaymentIntent($paymentIntentId);
+        }
+
         $stripeCheckout->syncPendingForClient($client);
 
-        return $this->success([], 'Pagamento sincronizado.');
+        $transaction = null;
+        if ($sessionId) {
+            $transaction = \App\Models\WalletTransaction::where('payment_reference', $sessionId)->first();
+        } elseif ($paymentIntentId) {
+            $transaction = \App\Models\WalletTransaction::where('payment_reference', $paymentIntentId)->first();
+        }
+
+        return $this->success([
+            'status' => data_get($transaction, 'payment_metadata.status', 'missing'),
+            'transaction_id' => $transaction?->id,
+        ], 'Pagamento sincronizado.');
     }
 
     public function cancel(Request $request, StripeCheckoutService $stripeCheckout): JsonResponse
@@ -142,10 +183,22 @@ class ClientWalletApiController extends Controller
         abort_unless($this->isClientUser(), 403);
 
         $data = $request->validate([
-            'payment_intent_id' => ['required', 'string', 'max:255'],
+            'payment_intent_id' => ['nullable', 'string', 'max:255'],
+            'session_id' => ['nullable', 'string', 'max:255'],
+            'cancel_token' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $stripeCheckout->cancelPaymentIntent($data['payment_intent_id']);
+        if (! empty($data['cancel_token'])) {
+            $stripeCheckout->cancelByToken($data['cancel_token']);
+        } elseif (! empty($data['session_id'])) {
+            $stripeCheckout->syncCheckoutSession($data['session_id']);
+            $transaction = \App\Models\WalletTransaction::where('payment_reference', $data['session_id'])->first();
+            if ($transaction) {
+                $stripeCheckout->cancelByToken((string) data_get($transaction->payment_metadata, 'cancel_token'));
+            }
+        } elseif (! empty($data['payment_intent_id'])) {
+            $stripeCheckout->cancelPaymentIntent($data['payment_intent_id']);
+        }
 
         return $this->success([], 'Pagamento cancelado e documento removido.');
     }

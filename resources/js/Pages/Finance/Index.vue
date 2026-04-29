@@ -101,13 +101,11 @@ const resolveSource = (sale) => {
 
 const saleKey = (sale) => `${resolveSource(sale)}-${sale.id}`
 
-const isInterventionSale = (sale) => !!sale.intervention
 const isPackIntervention = (sale) => !!sale?.intervention?.is_pack
 
 const isExpanded = (sale) => expandedKeys.value.has(saleKey(sale))
 
 const toggleExpanded = (sale, event) => {
-    if (!isInterventionSale(sale)) return
     if (event?.target?.closest?.('input, button, label, a, select, textarea')) return
 
     const key = saleKey(sale)
@@ -213,6 +211,49 @@ const formatAmount = (value) => {
 const formatDate = (value) => {
     if (!value) return '—'
     return new Date(value).toLocaleDateString('pt-PT')
+}
+
+const detailText = (value, fallback = '—') => {
+    if (value === null || value === undefined) return fallback
+    const text = String(value).trim()
+    return text.length ? text : fallback
+}
+
+const stripeBillingSummary = (sale) => {
+    const billing = sale?.billing
+    if (!billing || billing.provider !== 'stripe') return '—'
+
+    return [
+        detailText(billing.name),
+        detailText(billing.email),
+        detailText(billing.phone)
+    ].join(' · ')
+}
+
+const stripeBillingAddress = (sale) => {
+    const billing = sale?.billing
+    if (!billing || billing.provider !== 'stripe') return '—'
+
+    return [
+        detailText(billing.address, ''),
+        detailText(billing.postal_code, ''),
+        detailText(billing.city, ''),
+        detailText(billing.country, '')
+    ].filter(Boolean).join(' · ') || '—'
+}
+
+const packSummary = (sale) => {
+    if (!sale?.pack_item) return '—'
+
+    const parts = [
+        sale.pack_item.hours ? `${sale.pack_item.hours}h` : null,
+        sale.pack_item.pack_price !== null && sale.pack_item.pack_price !== undefined
+            ? `${formatAmount(sale.pack_item.pack_price)} €`
+            : null,
+        sale.pack_item.validity_months ? `${sale.pack_item.validity_months} meses` : null
+    ]
+
+    return parts.filter(Boolean).join(' · ') || '—'
 }
 
 const formatDuration = (seconds) => {
@@ -610,8 +651,7 @@ const removeInstallment = (installment) => {
                         <tbody>
                             <template v-for="sale in filteredSales" :key="saleKey(sale)">
                                 <tr
-                                    class="border-b"
-                                    :class="isInterventionSale(sale) ? 'cursor-pointer hover:bg-gray-50' : ''"
+                                    class="border-b cursor-pointer hover:bg-gray-50"
                                     @click="toggleExpanded(sale, $event)"
                                 >
                                     <td class="py-2 px-2">
@@ -703,6 +743,52 @@ const removeInstallment = (installment) => {
                                         <table class="w-full text-sm">
                                             <tbody>
                                                 <tr>
+                                                    <td class="w-40 text-gray-500">Origem</td>
+                                                    <td class="text-xs text-gray-600">
+                                                        {{ resolveSource(sale) === 'project' ? 'Projeto' : resolveSource(sale) === 'terminal' ? 'Terminal Stripe' : 'Transação de carteira' }}
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="sale.project">
+                                                    <td class="w-40 text-gray-500">Projeto</td>
+                                                    <td class="text-xs text-gray-600">
+                                                        {{ detailText(sale.project.name) }} · Estado: {{ detailText(sale.project.status) }}
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="sale.product">
+                                                    <td class="w-40 text-gray-500">Produto / Pack</td>
+                                                    <td class="text-xs text-gray-600">
+                                                        {{ detailText(sale.product.name) }} · {{ detailText(sale.product.type) }}
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="sale.quantity">
+                                                    <td class="w-40 text-gray-500">Quantidade</td>
+                                                    <td class="text-xs text-gray-600">{{ sale.quantity }}</td>
+                                                </tr>
+                                                <tr v-if="sale.pack_item">
+                                                    <td class="w-40 text-gray-500">Opção do pack</td>
+                                                    <td class="text-xs text-gray-600">{{ packSummary(sale) }}</td>
+                                                </tr>
+                                                <tr v-if="sale.invoice || sale.document_number">
+                                                    <td class="w-40 text-gray-500">Documento</td>
+                                                    <td class="text-xs text-gray-600">
+                                                        {{ sale.invoice?.number || sale.document_number || '—' }}
+                                                        <span v-if="sale.invoice?.status"> · Estado: {{ sale.invoice.status }}</span>
+                                                        <span v-if="sale.invoice?.total !== null && sale.invoice?.total !== undefined"> · Total: {{ formatAmount(sale.invoice.total) }} €</span>
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="sale.invoice?.issued_at || sale.invoice?.paid_at">
+                                                    <td class="w-40 text-gray-500">Datas do documento</td>
+                                                    <td class="text-xs text-gray-600">
+                                                        Emitido: {{ formatDate(sale.invoice?.issued_at) }} · Pago: {{ formatDate(sale.invoice?.paid_at) }}
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="sale.invoice?.payment_method || sale.invoice?.payment_account">
+                                                    <td class="w-40 text-gray-500">Pagamento registado</td>
+                                                    <td class="text-xs text-gray-600">
+                                                        {{ detailText(sale.invoice?.payment_method) }} · {{ detailText(sale.invoice?.payment_account) }}
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="sale.intervention">
                                                     <td class="w-40 text-gray-500">Notas início</td>
                                                     <td>
                                                         <span class="text-xs text-gray-600">
@@ -710,7 +796,7 @@ const removeInstallment = (installment) => {
                                                         </span>
                                                     </td>
                                                 </tr>
-                                                <tr>
+                                                <tr v-if="sale.intervention">
                                                     <td class="w-40 text-gray-500">Notas fim</td>
                                                     <td>
                                                         <span class="text-xs text-gray-600">
@@ -718,11 +804,11 @@ const removeInstallment = (installment) => {
                                                         </span>
                                                     </td>
                                                 </tr>
-                                                <tr>
+                                                <tr v-if="sale.intervention">
                                                     <td class="w-40 text-gray-500">Duração</td>
                                                     <td class="font-mono">{{ formatDuration(sale.intervention?.total_seconds) }}</td>
                                                 </tr>
-                                                <tr>
+                                                <tr v-if="sale.intervention">
                                                     <td class="w-40 text-gray-500">Valor/hora</td>
                                                     <td>{{ formatRate(sale) }}</td>
                                                 </tr>
@@ -736,10 +822,10 @@ const removeInstallment = (installment) => {
                                                             Pedido com NIF: {{ sale.billing.wants_invoice ? 'Sim' : 'Não' }}
                                                         </div>
                                                         <div class="text-xs text-gray-600">
-                                                            {{ sale.billing.name || '—' }} · {{ sale.billing.email || '—' }} · {{ sale.billing.phone || '—' }}
+                                                            {{ stripeBillingSummary(sale) }}
                                                         </div>
                                                         <div class="text-xs text-gray-600">
-                                                            {{ sale.billing.vat || 'Sem NIF' }} · {{ sale.billing.address || '—' }} · {{ sale.billing.postal_code || '—' }} {{ sale.billing.city || '' }} {{ sale.billing.country || '' }}
+                                                            {{ sale.billing.vat || 'Sem NIF' }} · {{ stripeBillingAddress(sale) }}
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -756,6 +842,10 @@ const removeInstallment = (installment) => {
                                                             Cartão: {{ sale.billing.card_brand || '—' }} · {{ sale.billing.card_last4 || '—' }} · Charge: {{ sale.billing.charge_id || '—' }}
                                                         </div>
                                                     </td>
+                                                </tr>
+                                                <tr v-if="!sale.project && !sale.product && !sale.pack_item && !sale.intervention && !sale.invoice && !sale.billing">
+                                                    <td class="w-40 text-gray-500">Detalhes</td>
+                                                    <td class="text-xs text-gray-600">Sem detalhes adicionais registados.</td>
                                                 </tr>
                                             </tbody>
                                         </table>

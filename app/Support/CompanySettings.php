@@ -44,6 +44,7 @@ class CompanySettings
             'iban' => 'LT123123123123123123',
             'bank_name' => 'Revolut Bank',
             'swift' => 'REVBK',
+            'client_checkout_method' => 'stripe',
             'payment_notes' => '',
             'payment_methods' => [],
         ];

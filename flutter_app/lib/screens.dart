@@ -1,8 +1,8 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -792,6 +792,23 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _openInvoiceDetails(Map<String, dynamic> invoice) async {
+    final id = invoice['id'];
+    if (id == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (context) => InvoiceDetailScreen(
+          controller: widget.controller,
+          invoiceId: id.toString(),
+          initialInvoice: invoice,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final userName =
@@ -970,6 +987,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             titleKey: 'number',
                             subtitleBuilder: (item) =>
                                 '${item['project']?['name'] ?? '—'} · ${money(item['total'])} · ${item['status'] ?? '—'}',
+                            onItemTap: _openInvoiceDetails,
                           ),
                         ),
                       CardSection(
@@ -979,6 +997,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           titleKey: 'number',
                           subtitleBuilder: (item) =>
                               '${item['client']?['name'] ?? '—'} · ${money(item['total'])}',
+                          onItemTap: _openInvoiceDetails,
                         ),
                       ),
                       CardSection(
@@ -1206,6 +1225,11 @@ class _ObjectsScreenState extends State<ObjectsScreen> {
                                                     isVisible
                                                         ? 'Ocultar'
                                                         : 'Mostrar',
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF0E4D50),
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
                                                   ),
                                                 ),
                                                 const SizedBox(width: 12),
@@ -1217,7 +1241,14 @@ class _ObjectsScreenState extends State<ObjectsScreen> {
                                                                 ?.toString() ??
                                                             '',
                                                       ),
-                                                  child: const Text('Copiar'),
+                                                  child: const Text(
+                                                    'Copiar',
+                                                    style: TextStyle(
+                                                      color: Color(0xFF0E4D50),
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
                                                 ),
                                               ],
                                             ),
@@ -1524,6 +1555,7 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
   bool _loading = true;
   String? _error;
   Map<String, dynamic>? _payload;
+  final Set<int> _revealedPasswords = <int>{};
 
   @override
   void initState() {
@@ -1565,6 +1597,18 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
       if (!mounted) return;
       await showMessage(context, title: 'Erro', message: error.message);
     }
+  }
+
+  Future<void> _copyPassword(String value) async {
+    if (value.isEmpty) return;
+
+    await Clipboard.setData(ClipboardData(text: value));
+    if (!mounted) return;
+    await showMessage(
+      context,
+      title: 'Senha copiada',
+      message: 'A senha foi copiada para a área de transferência.',
+    );
   }
 
   Future<void> _openObjectTransfer(Map<String, dynamic> object) async {
@@ -2121,11 +2165,97 @@ class _ClientDetailScreenState extends State<ClientDetailScreen> {
                                   const SizedBox(height: 4),
                                   for (final credential
                                       in (object['credentials'] as List? ?? []))
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 8),
-                                      child: Text(
-                                        '${credential['label']} · ${credential['username'] ?? '—'}',
-                                      ),
+                                    Builder(
+                                      builder: (context) {
+                                        final credentialId =
+                                            credential['id'] as int? ?? 0;
+                                        final isVisible = _revealedPasswords
+                                            .contains(credentialId);
+                                        return Container(
+                                          width: double.infinity,
+                                          margin: const EdgeInsets.only(
+                                            bottom: 8,
+                                          ),
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFFFFFFF),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                            border: Border.all(
+                                              color: const Color(0x180E4D50),
+                                            ),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                '${credential['label']} · ${credential['username'] ?? '—'}',
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                'Senha: ${isVisible ? credential['password'] ?? '—' : '******'}',
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Row(
+                                                children: [
+                                                  CupertinoButton(
+                                                    padding: EdgeInsets.zero,
+                                                    onPressed: () {
+                                                      setState(() {
+                                                        if (isVisible) {
+                                                          _revealedPasswords
+                                                              .remove(
+                                                                credentialId,
+                                                              );
+                                                        } else {
+                                                          _revealedPasswords
+                                                              .add(
+                                                                credentialId,
+                                                              );
+                                                        }
+                                                      });
+                                                    },
+                                                    child: Text(
+                                                      isVisible
+                                                          ? 'Ocultar'
+                                                          : 'Mostrar',
+                                                      style: const TextStyle(
+                                                        color: Color(
+                                                          0xFF0E4D50,
+                                                        ),
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 10),
+                                                  CupertinoButton(
+                                                    padding: EdgeInsets.zero,
+                                                    onPressed: () =>
+                                                        _copyPassword(
+                                                          credential['password']
+                                                                  ?.toString() ??
+                                                              '',
+                                                        ),
+                                                    child: const Text(
+                                                      'Copiar',
+                                                      style: TextStyle(
+                                                        color: Color(
+                                                          0xFF0E4D50,
+                                                        ),
+                                                        fontWeight:
+                                                            FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
                                     ),
                                 ],
                               ),
@@ -4084,7 +4214,6 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
     super.initState();
     _terminalService = StripeTerminalService(controller: widget.controller)
       ..addListener(_onTerminalChanged);
-    _bootstrap();
   }
 
   @override
@@ -4708,6 +4837,23 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
     }
   }
 
+  Future<void> _openDetails(Map<String, dynamic> invoice) async {
+    final id = invoice['id'];
+    if (id == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (context) => InvoiceDetailScreen(
+          controller: widget.controller,
+          invoiceId: id.toString(),
+          initialInvoice: invoice,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
@@ -4735,43 +4881,18 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                   final invoice = (_invoices[index] as Map)
                       .cast<String, dynamic>();
                   final status = invoice['status']?.toString() ?? '—';
-                  return CardSection(
+                  return _EntityListCard(
                     title: invoice['number']?.toString() ?? 'Documento',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '${invoice['client']?['name'] ?? '—'} · ${money(invoice['total'])}',
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Estado: $status · Emissão: ${formatDate(invoice['issued_at'])}',
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            _DocActionButton(
-                              icon: CupertinoIcons.doc_text,
-                              label: 'PDF',
-                              onPressed: () => _openDocument(
-                                context,
-                                widget.controller,
-                                '/documents/invoices/${invoice['id']}/pdf',
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            _DocActionButton(
-                              icon: CupertinoIcons.printer,
-                              label: 'Imprimir',
-                              onPressed: () => _openDocument(
-                                context,
-                                widget.controller,
-                                '/documents/invoices/${invoice['id']}/pdf',
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                    subtitle:
+                        '${invoice['client']?['name'] ?? '—'} · ${money(invoice['total'])}',
+                    metaLines: [
+                      'Estado: $status',
+                      'Emissão: ${formatDate(invoice['issued_at'])}',
+                    ],
+                    onTap: () => _openDetails(invoice),
+                    footer: _DetailLinkButton(
+                      label: 'Ver detalhe',
+                      onTap: () => _openDetails(invoice),
                     ),
                   );
                 },
@@ -4788,6 +4909,210 @@ class FinanceScreen extends StatefulWidget {
 
   @override
   State<FinanceScreen> createState() => _FinanceScreenState();
+}
+
+class InvoiceDetailScreen extends StatefulWidget {
+  const InvoiceDetailScreen({
+    super.key,
+    required this.controller,
+    required this.invoiceId,
+    this.initialInvoice,
+  });
+
+  final AppController controller;
+  final String invoiceId;
+  final Map<String, dynamic>? initialInvoice;
+
+  @override
+  State<InvoiceDetailScreen> createState() => _InvoiceDetailScreenState();
+}
+
+class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
+  bool _loading = true;
+  String? _error;
+  Map<String, dynamic>? _invoice;
+
+  @override
+  void initState() {
+    super.initState();
+    _invoice = widget.initialInvoice;
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final result = await widget.controller.client.get(
+        '/invoices/${widget.invoiceId}',
+      );
+      final data = ((result['data'] as Map?)?['invoice'] as Map?)
+          ?.cast<String, dynamic>();
+      if (data != null) {
+        setState(() => _invoice = data);
+      }
+    } on ApiException catch (error) {
+      setState(() => _error = error.message);
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final invoice = _invoice;
+    final title = invoice?['number']?.toString() ?? 'Documento';
+    final items = (invoice?['items'] as List?)?.cast<dynamic>() ?? const [];
+
+    return CupertinoPageScaffold(
+      navigationBar: CupertinoNavigationBar(
+        middle: Text(title),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: _load,
+          child: const Icon(CupertinoIcons.refresh),
+        ),
+      ),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppGradientBackground(),
+          SafeArea(
+            child: _loading && invoice == null
+                ? const Center(
+                    child: CupertinoActivityIndicator(
+                      radius: 16,
+                      color: CupertinoColors.white,
+                    ),
+                  )
+                : _error != null && invoice == null
+                ? ErrorState(message: _error!, onRetry: _load)
+                : ListView(
+                    physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
+                    padding: const EdgeInsets.only(bottom: 18),
+                    children: [
+                      CardSection(
+                        title: title,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _reviewLine(
+                              'Cliente',
+                              invoice?['client']?['name']?.toString() ?? '—',
+                            ),
+                            _reviewLine(
+                              'Projeto',
+                              invoice?['project']?['name']?.toString() ?? '—',
+                            ),
+                            _reviewLine(
+                              'Estado',
+                              invoice?['status']?.toString() ?? '—',
+                            ),
+                            _reviewLine(
+                              'Emissão',
+                              formatDate(invoice?['issued_at']),
+                            ),
+                            _reviewLine(
+                              'Vencimento',
+                              formatDate(invoice?['due_at']),
+                            ),
+                            _reviewLine(
+                              'Pago em',
+                              formatDate(invoice?['paid_at']),
+                            ),
+                            _reviewLine('Total', money(invoice?['total'])),
+                            _reviewLine(
+                              'Método',
+                              invoice?['payment_method']?.toString() ?? '—',
+                            ),
+                            _reviewLine(
+                              'Conta',
+                              invoice?['payment_account']?.toString() ?? '—',
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (items.isNotEmpty)
+                        CardSection(
+                          title: 'Linhas do documento',
+                          child: Column(
+                            children: [
+                              for (final rawItem in items)
+                                Builder(
+                                  builder: (context) {
+                                    final item = (rawItem as Map)
+                                        .cast<String, dynamic>();
+                                    return Container(
+                                      width: double.infinity,
+                                      margin: const EdgeInsets.only(bottom: 10),
+                                      padding: const EdgeInsets.all(12),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFF4F7F8),
+                                        borderRadius: BorderRadius.circular(14),
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            item['description']?.toString() ??
+                                                'Linha',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              color: Color(0xFF0C3E42),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 6),
+                                          Text(
+                                            'Qtd: ${item['quantity'] ?? '—'} · Unitário: ${money(item['unit_price'])} · Total: ${money(item['total'])}',
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                            ],
+                          ),
+                        ),
+                      CardSection(
+                        title: 'Ações',
+                        child: Row(
+                          children: [
+                            _DocActionButton(
+                              icon: CupertinoIcons.doc_text,
+                              label: 'PDF',
+                              onPressed: () => _openDocument(
+                                context,
+                                widget.controller,
+                                '/documents/invoices/${widget.invoiceId}/pdf',
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            _DocActionButton(
+                              icon: CupertinoIcons.printer,
+                              label: 'Imprimir',
+                              onPressed: () => _openDocument(
+                                context,
+                                widget.controller,
+                                '/documents/invoices/${widget.invoiceId}/pdf',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _FinanceScreenState extends State<FinanceScreen> {
@@ -4830,14 +5155,22 @@ class _FinanceScreenState extends State<FinanceScreen> {
       (sum, item) => sum + toNumber((item as Map)['amount']),
     );
     final toInvoice = _sales
-        .where((item) => (item as Map)['to_invoice'] == true)
+        .where(
+          (item) =>
+              _financeSaleNeedsInvoice((item as Map).cast<String, dynamic>()),
+        )
         .fold<num>(0, (sum, item) => sum + toNumber((item as Map)['amount']));
-    final paidInvoices = _invoices
-        .where((item) => (item as Map)['status'] == 'pago')
-        .fold<num>(0, (sum, item) => sum + toNumber((item as Map)['total']));
-    final pendingInvoices = _invoices
-        .where((item) => (item as Map)['status'] != 'pago')
-        .fold<num>(0, (sum, item) => sum + toNumber((item as Map)['total']));
+    final paidInvoices = _sales
+        .where(
+          (item) => _financeSaleIsPaid((item as Map).cast<String, dynamic>()),
+        )
+        .fold<num>(0, (sum, item) => sum + toNumber((item as Map)['amount']));
+    final pendingInvoices = _sales
+        .where((item) {
+          final sale = (item as Map).cast<String, dynamic>();
+          return !_financeSaleIsPaid(sale) && _financeSaleHasDocument(sale);
+        })
+        .fold<num>(0, (sum, item) => sum + toNumber((item as Map)['amount']));
     final installmentTotal = _installments.fold<num>(
       0,
       (sum, item) => sum + toNumber((item as Map)['amount']),
@@ -4872,22 +5205,32 @@ class _FinanceScreenState extends State<FinanceScreen> {
                         _FinanceStatTile(
                           label: 'Vendas',
                           value: money(totalSales),
+                          accent: const Color(0xFF0B3E42),
+                          background: const Color(0xFFEAF3F3),
                         ),
                         _FinanceStatTile(
                           label: 'A faturar',
                           value: money(toInvoice),
+                          accent: const Color(0xFF1565C0),
+                          background: const Color(0xFFEAF2FF),
                         ),
                         _FinanceStatTile(
                           label: 'Pago',
                           value: money(paidInvoices),
+                          accent: const Color(0xFF2E7D57),
+                          background: const Color(0xFFE9F6EE),
                         ),
                         _FinanceStatTile(
                           label: 'Pendente',
                           value: money(pendingInvoices),
+                          accent: const Color(0xFFB26A00),
+                          background: const Color(0xFFFFF3DE),
                         ),
                         _FinanceStatTile(
                           label: 'Parcelas',
                           value: money(installmentTotal),
+                          accent: const Color(0xFF6A1B9A),
+                          background: const Color(0xFFF5EAFE),
                         ),
                       ],
                     ),
@@ -6226,9 +6569,14 @@ class _WalletsScreenState extends State<WalletsScreen> {
 }
 
 class ClientWalletScreen extends StatefulWidget {
-  const ClientWalletScreen({super.key, required this.controller});
+  const ClientWalletScreen({
+    super.key,
+    required this.controller,
+    this.paymentReturn,
+  });
 
   final AppController controller;
+  final WalletCheckoutReturn? paymentReturn;
 
   @override
   State<ClientWalletScreen> createState() => _ClientWalletScreenState();
@@ -6242,16 +6590,25 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
   List<dynamic> _transactions = [];
   List<dynamic> _interventions = [];
   List<dynamic> _packs = [];
+  bool _stripeAvailable = false;
+  Map<String, dynamic>? _manualPayment;
   String? _packProductId;
   String? _packItemId;
   final TextEditingController _packQuantityController = TextEditingController(
     text: '1',
   );
+  bool _handledPaymentReturn = false;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    if (widget.paymentReturn != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_handlePaymentReturn(widget.paymentReturn!));
+      });
+    } else {
+      _load();
+    }
   }
 
   @override
@@ -6260,11 +6617,15 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _load({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    } else {
+      setState(() => _error = null);
+    }
 
     try {
       final result = await widget.controller.client.get('/wallet');
@@ -6274,6 +6635,9 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
         _transactions = data['transactions'] as List<dynamic>? ?? [];
         _interventions = data['interventions'] as List<dynamic>? ?? [];
         _packs = data['packs'] as List<dynamic>? ?? [];
+        _stripeAvailable = data['stripe_available'] == true;
+        _manualPayment = (data['manual_payment'] as Map?)
+            ?.cast<String, dynamic>();
         if (_packProductId == null && _packs.isNotEmpty) {
           _packProductId = ((_packs.first as Map)['id']).toString();
         }
@@ -6286,8 +6650,67 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
     }
   }
 
+  Future<void> _handlePaymentReturn(WalletCheckoutReturn paymentReturn) async {
+    if (_handledPaymentReturn) {
+      return;
+    }
+
+    _handledPaymentReturn = true;
+    String title;
+    String message;
+
+    try {
+      if (paymentReturn.isSuccess) {
+        if ((paymentReturn.sessionId ?? '').isNotEmpty) {
+          await widget.controller.client.post(
+            '/wallet/checkout/finalize',
+            body: {'session_id': paymentReturn.sessionId},
+          );
+        }
+        title = 'Pagamento concluído';
+        message = 'O pagamento foi registado e a carteira foi atualizada.';
+      } else {
+        await widget.controller.client.post(
+          '/wallet/checkout/cancel',
+          body: {
+            if ((paymentReturn.token ?? '').isNotEmpty)
+              'cancel_token': paymentReturn.token,
+            if ((paymentReturn.sessionId ?? '').isNotEmpty)
+              'session_id': paymentReturn.sessionId,
+          },
+        );
+        title = 'Pagamento cancelado';
+        message = 'O checkout foi cancelado e a carteira já foi sincronizada.';
+      }
+    } catch (_) {
+      title = paymentReturn.isSuccess
+          ? 'Pagamento recebido'
+          : 'Pagamento cancelado';
+      message = paymentReturn.isSuccess
+          ? 'Foi pedido um novo refresh da carteira para confirmar o estado.'
+          : 'Foi pedido um novo refresh da carteira para remover a operação pendente.';
+    }
+
+    await _load(showLoading: false);
+    if (!mounted) {
+      return;
+    }
+
+    await showMessage(context, title: title, message: message);
+  }
+
   Map<String, dynamic>? get _walletClient =>
       (_wallet?['client'] as Map?)?.cast<String, dynamic>();
+
+  List<Map<String, dynamic>> get _manualPaymentMethods =>
+      ((_manualPayment?['methods'] as List?) ?? [])
+          .map((item) => (item as Map).cast<String, dynamic>())
+          .toList();
+
+  bool get _hasManualPaymentInfo {
+    final notes = _manualPayment?['notes']?.toString().trim() ?? '';
+    return notes.isNotEmpty || _manualPaymentMethods.isNotEmpty;
+  }
 
   String _formatHours(dynamic secondsValue) {
     final seconds = secondsValue is num
@@ -6393,10 +6816,29 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
         ) ??
         1;
     final duration =
-        item['type']?.toString() == 'purchase' && packItem?['hours'] != null
-        ? '+${packItem!['hours']}h${quantity > 1 ? ' × $quantity' : ''}'
-        : _formatHours(_transactionDurationSeconds(item));
+        _pendingHoursLabel(item) ??
+        (item['type']?.toString() == 'purchase' && packItem?['hours'] != null
+            ? '+${packItem!['hours']}h${quantity > 1 ? ' × $quantity' : ''}'
+            : _formatHours(_transactionDurationSeconds(item)));
     return '$duration · ${formatDate(item['transaction_at'])}';
+  }
+
+  String? _pendingHoursLabel(Map<String, dynamic> item) {
+    final payment = (item['payment_metadata'] as Map?)?.cast<String, dynamic>();
+    final packItem = (item['pack_item'] as Map?)?.cast<String, dynamic>();
+    if (item['payment_provider']?.toString() != 'stripe' ||
+        payment?['status']?.toString() != 'pending' ||
+        packItem?['hours'] == null) {
+      return null;
+    }
+
+    final quantity = int.tryParse(payment?['quantity']?.toString() ?? '1') ?? 1;
+    final hours = num.tryParse(packItem!['hours'].toString()) ?? 0;
+    final totalHours = hours * max(quantity, 1);
+    final hoursLabel = totalHours == totalHours.roundToDouble()
+        ? totalHours.toInt().toString()
+        : totalHours.toStringAsFixed(2);
+    return 'Pendente (+${hoursLabel}h)';
   }
 
   int get _selectedQuantity =>
@@ -6416,14 +6858,6 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
     return toNumber(item['pack_price']) * _selectedQuantity;
   }
 
-  BillingDetails _billingDetails() {
-    return BillingDetails(
-      name: _walletClient?['name']?.toString(),
-      email: _walletClient?['email']?.toString(),
-      phone: _walletClient?['phone']?.toString(),
-    );
-  }
-
   Map<String, dynamic> _checkoutPayload() {
     return {
       'product_id': int.parse(_packProductId!),
@@ -6433,27 +6867,38 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
     };
   }
 
-  Future<bool> _reviewCheckout() async {
+  Future<void> _openCheckoutReview() async {
     final pack = _selectedPackProduct;
     final option = _selectedPackItem;
-    if (pack == null || option == null) return false;
+    if (pack == null || option == null) return;
 
-    return await Navigator.of(context).push<bool>(
-          CupertinoPageRoute(
-            builder: (context) => ClientCheckoutSummaryScreen(
-              packName: pack['name']?.toString() ?? '—',
-              optionLabel:
-                  '${option['hours']}h · ${moneyOrDash(option['pack_price'])} · ${option['validity_months']} meses',
-              quantity: _selectedQuantity,
-              unitPrice: money(option['pack_price']),
-              totalPrice: money(_selectedPackTotal),
-              clientName: _walletClient?['name']?.toString() ?? '—',
-              clientEmail: _walletClient?['email']?.toString() ?? '—',
-              clientPhone: _walletClient?['phone']?.toString() ?? '—',
-            ),
-          ),
-        ) ??
-        false;
+    final completed = await Navigator.of(context).push<bool>(
+      CupertinoPageRoute(
+        builder: (context) => ClientCheckoutFlowScreen(
+          controller: widget.controller,
+          payload: _checkoutPayload(),
+          packName: pack['name']?.toString() ?? '—',
+          optionLabel:
+              '${option['hours']}h · ${moneyOrDash(option['pack_price'])} · ${option['validity_months']} meses',
+          quantity: _selectedQuantity,
+          unitPrice: money(option['pack_price']),
+          totalPrice: money(_selectedPackTotal),
+          clientName: _walletClient?['name']?.toString() ?? '—',
+          clientEmail: _walletClient?['email']?.toString() ?? '—',
+          clientPhone: _walletClient?['phone']?.toString() ?? '—',
+        ),
+      ),
+    );
+
+    if (completed == true && mounted) {
+      await _load();
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Pagamento concluído',
+        message: 'O pagamento foi registado e a carteira foi atualizada.',
+      );
+    }
   }
 
   Future<void> _pickClientPackProduct() async {
@@ -6552,89 +6997,17 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
       return;
     }
 
-    final confirmed = await _reviewCheckout();
-    if (!confirmed || !mounted) return;
+    if (!_stripeAvailable) {
+      return;
+    }
 
     setState(() => _paymentLoading = true);
-    String? paymentIntentId;
     try {
-      final result = await widget.controller.client.post(
-        '/wallet/checkout',
-        body: _checkoutPayload(),
-      );
-      final data = (result['data'] as Map).cast<String, dynamic>();
-      paymentIntentId = data['payment_intent_id']?.toString();
-      final publishableKey = data['publishable_key']?.toString() ?? '';
-      if (publishableKey.isEmpty ||
-          paymentIntentId == null ||
-          paymentIntentId.isEmpty) {
-        throw Exception('Configuração Stripe inválida.');
-      }
-
-      Stripe.publishableKey = publishableKey;
-      await Stripe.instance.applySettings();
-
-      await Stripe.instance.initPaymentSheet(
-        paymentSheetParameters: SetupPaymentSheetParameters(
-          merchantDisplayName: 'WireDevelop',
-          paymentIntentClientSecret:
-              data['payment_intent_client_secret']?.toString() ?? '',
-          customerId: data['customer_id']?.toString(),
-          customerEphemeralKeySecret: data['customer_ephemeral_key_secret']
-              ?.toString(),
-          billingDetails: _billingDetails(),
-          allowsDelayedPaymentMethods: false,
-        ),
-      );
-
-      await Stripe.instance.presentPaymentSheet();
-      await widget.controller.client.post(
-        '/wallet/checkout/finalize',
-        body: {'payment_intent_id': paymentIntentId},
-      );
-      await _load();
-
-      if (!mounted) return;
-      await showMessage(
-        context,
-        title: 'Pagamento concluído',
-        message: 'O pagamento foi registado e a carteira foi atualizada.',
-      );
-    } on StripeException catch (error) {
-      if (paymentIntentId != null && paymentIntentId.isNotEmpty) {
-        try {
-          await widget.controller.client.post(
-            '/wallet/checkout/cancel',
-            body: {'payment_intent_id': paymentIntentId},
-          );
-        } catch (_) {}
-      }
-      if (!mounted) return;
-      await showMessage(
-        context,
-        title: 'Pagamento cancelado',
-        message:
-            error.error.localizedMessage ??
-            'O pagamento foi cancelado ou não foi concluído.',
-      );
+      await _openCheckoutReview();
     } on ApiException catch (error) {
-      if (!mounted) return;
-      await showMessage(context, title: 'Erro', message: error.message);
-    } catch (_) {
-      if (paymentIntentId != null && paymentIntentId.isNotEmpty) {
-        try {
-          await widget.controller.client.post(
-            '/wallet/checkout/cancel',
-            body: {'payment_intent_id': paymentIntentId},
-          );
-        } catch (_) {}
+      if (mounted) {
+        await showMessage(context, title: 'Erro', message: error.message);
       }
-      if (!mounted) return;
-      await showMessage(
-        context,
-        title: 'Erro',
-        message: 'Não foi possível iniciar o pagamento.',
-      );
     } finally {
       if (mounted) {
         setState(() => _paymentLoading = false);
@@ -6736,16 +7109,32 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
                             ],
                           ),
                           const SizedBox(height: 10),
+                          if (_hasManualPaymentInfo) ...[
+                            const Text(
+                              'Se preferires, também podes optar por pagamento manual falando com a WireDevelop.',
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+                          if (!_stripeAvailable) ...[
+                            const Text(
+                              'O checkout Stripe está indisponível neste servidor neste momento.',
+                            ),
+                            const SizedBox(height: 10),
+                          ],
                           CupertinoButton(
                             color: const Color(0xFF0E4D50),
                             borderRadius: BorderRadius.circular(14),
-                            onPressed: _paymentLoading ? null : _openCheckout,
+                            onPressed: _paymentLoading || !_stripeAvailable
+                                ? null
+                                : _openCheckout,
                             child: _paymentLoading
                                 ? const CupertinoActivityIndicator(
                                     color: CupertinoColors.white,
                                   )
-                                : const Text(
-                                    'AVANÇAR',
+                                : Text(
+                                    !_stripeAvailable
+                                        ? 'STRIPE INDISPONÍVEL'
+                                        : 'AVANÇAR',
                                     style: TextStyle(
                                       color: CupertinoColors.white,
                                       fontWeight: FontWeight.w700,
@@ -6818,9 +7207,11 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
   }
 }
 
-class ClientCheckoutSummaryScreen extends StatelessWidget {
-  const ClientCheckoutSummaryScreen({
+class ClientCheckoutFlowScreen extends StatefulWidget {
+  const ClientCheckoutFlowScreen({
     super.key,
+    required this.controller,
+    required this.payload,
     required this.packName,
     required this.optionLabel,
     required this.quantity,
@@ -6831,6 +7222,8 @@ class ClientCheckoutSummaryScreen extends StatelessWidget {
     required this.clientPhone,
   });
 
+  final AppController controller;
+  final Map<String, dynamic> payload;
   final String packName;
   final String optionLabel;
   final int quantity;
@@ -6841,6 +7234,158 @@ class ClientCheckoutSummaryScreen extends StatelessWidget {
   final String clientPhone;
 
   @override
+  State<ClientCheckoutFlowScreen> createState() =>
+      _ClientCheckoutFlowScreenState();
+}
+
+class _ClientCheckoutFlowScreenState extends State<ClientCheckoutFlowScreen>
+    with WidgetsBindingObserver {
+  bool _loading = true;
+  bool _paying = false;
+  bool _completed = false;
+  bool _cancelled = false;
+  bool _checkoutOpened = false;
+  String? _error;
+  Map<String, dynamic>? _checkout;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _prepareCheckout();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    if (!_completed && !_cancelled) {
+      unawaited(_cancelCheckout());
+    }
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && _checkoutOpened && !_completed) {
+      unawaited(_refreshCheckoutStatus());
+    }
+  }
+
+  Future<void> _prepareCheckout() async {
+    try {
+      final result = await widget.controller.client.post(
+        '/wallet/checkout',
+        body: widget.payload,
+      );
+      final data = (result['data'] as Map).cast<String, dynamic>();
+      setState(() {
+        _checkout = data;
+      });
+    } on ApiException catch (error) {
+      _error = error.message;
+    } catch (_) {
+      _error = 'Não foi possível preparar o pagamento.';
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  String get _checkoutSessionId =>
+      _checkout?['checkout_session_id']?.toString() ?? '';
+
+  Future<void> _cancelCheckout() async {
+    final cancelToken = _checkout?['cancel_token']?.toString() ?? '';
+    final sessionId = _checkoutSessionId;
+    if (_cancelled || (cancelToken.isEmpty && sessionId.isEmpty)) {
+      return;
+    }
+
+    _cancelled = true;
+    try {
+      await widget.controller.client.post(
+        '/wallet/checkout/cancel',
+        body: {
+          if (cancelToken.isNotEmpty) 'cancel_token': cancelToken,
+          if (sessionId.isNotEmpty) 'session_id': sessionId,
+        },
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _refreshCheckoutStatus() async {
+    final sessionId = _checkoutSessionId;
+    if (sessionId.isEmpty || _paying) {
+      return;
+    }
+
+    try {
+      final result = await widget.controller.client.post(
+        '/wallet/checkout/finalize',
+        body: {'session_id': sessionId},
+      );
+      final data = (result['data'] as Map?)?.cast<String, dynamic>() ?? {};
+      final status = data['status']?.toString() ?? 'missing';
+      if (status == 'paid') {
+        _completed = true;
+        _cancelled = true;
+        if (mounted) {
+          Navigator.of(context).pop(true);
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _pay() async {
+    final checkoutUrl = _checkout?['checkout_url']?.toString() ?? '';
+    if (checkoutUrl.isEmpty || _paying) {
+      return;
+    }
+
+    setState(() => _paying = true);
+    try {
+      final opened = await launchUrl(
+        Uri.parse(checkoutUrl),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) {
+        if (!mounted) return;
+        await showMessage(
+          context,
+          title: 'Erro',
+          message: 'Não foi possível abrir o checkout Stripe.',
+        );
+        return;
+      }
+
+      _checkoutOpened = true;
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Checkout aberto',
+        message:
+            'O checkout Stripe foi aberto no navegador. Depois de concluir ou cancelar, volte à app para atualizar o estado.',
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    } catch (_) {
+      await _cancelCheckout();
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Erro',
+        message: 'Não foi possível iniciar o pagamento Stripe.',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _paying = false);
+      }
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
       navigationBar: const CupertinoNavigationBar(middle: Text('Resumo')),
@@ -6849,51 +7394,100 @@ class ClientCheckoutSummaryScreen extends StatelessWidget {
         children: [
           const AppGradientBackground(),
           SafeArea(
-            child: ListView(
-              physics: const BouncingScrollPhysics(
-                parent: AlwaysScrollableScrollPhysics(),
-              ),
-              padding: const EdgeInsets.all(16),
-              children: [
-                CardSection(
-                  title: 'Resumo da compra',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _reviewLine('Pack', packName),
-                      _reviewLine('Opção', optionLabel),
-                      _reviewLine('Quantidade', quantity.toString()),
-                      _reviewLine('Preço unitário', unitPrice),
-                      _reviewLine('Total', totalPrice),
-                    ],
-                  ),
-                ),
-                CardSection(
-                  title: 'Dados da conta',
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _reviewLine('Nome', clientName),
-                      _reviewLine('Email', clientEmail),
-                      _reviewLine('Telefone', clientPhone),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 6),
-                CupertinoButton(
-                  color: const Color(0xFF0E4D50),
-                  borderRadius: BorderRadius.circular(14),
-                  onPressed: () => Navigator.of(context).pop(true),
-                  child: const Text(
-                    'PAGAR',
-                    style: TextStyle(
-                      color: CupertinoColors.white,
-                      fontWeight: FontWeight.w700,
+            child: _loading
+                ? const Center(child: CupertinoActivityIndicator(radius: 16))
+                : _error != null
+                ? ErrorState(
+                    message: _error!,
+                    onRetry: () {
+                      setState(() {
+                        _loading = true;
+                        _error = null;
+                      });
+                      _prepareCheckout();
+                    },
+                  )
+                : ListView(
+                    physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
                     ),
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      CardSection(
+                        title: 'Resumo da compra',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _reviewLine('Pack', widget.packName),
+                            _reviewLine('Opção', widget.optionLabel),
+                            _reviewLine(
+                              'Quantidade',
+                              widget.quantity.toString(),
+                            ),
+                            _reviewLine('Preço unitário', widget.unitPrice),
+                            _reviewLine('Total', widget.totalPrice),
+                          ],
+                        ),
+                      ),
+                      CardSection(
+                        title: 'Dados da conta',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _reviewLine('Nome', widget.clientName),
+                            _reviewLine('Email', widget.clientEmail),
+                            _reviewLine('Telefone', widget.clientPhone),
+                          ],
+                        ),
+                      ),
+                      CardSection(
+                        title: 'Métodos de pagamento',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'O pagamento será concluído no checkout Stripe externo. A escolha do método e a recolha do NIF, quando preenchido, ficam registadas no CRM.',
+                            ),
+                            if (_checkoutOpened) ...[
+                              const SizedBox(height: 10),
+                              const Text(
+                                'Se já terminaste no navegador, volta à app e carrega abaixo para verificar o estado.',
+                              ),
+                              const SizedBox(height: 10),
+                              CupertinoButton(
+                                padding: EdgeInsets.zero,
+                                onPressed: _refreshCheckoutStatus,
+                                child: const Text(
+                                  'Atualizar estado do pagamento',
+                                  style: TextStyle(
+                                    color: Color(0xFF0E4D50),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      CupertinoButton(
+                        color: const Color(0xFF0E4D50),
+                        borderRadius: BorderRadius.circular(14),
+                        onPressed: _paying ? null : _pay,
+                        child: _paying
+                            ? const CupertinoActivityIndicator(
+                                color: CupertinoColors.white,
+                              )
+                            : const Text(
+                                'PAGAR',
+                                style: TextStyle(
+                                  color: CupertinoColors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
           ),
         ],
       ),
@@ -7390,37 +7984,93 @@ Widget _detailTextBlock(String label, String value) {
 }
 
 class _FinanceStatTile extends StatelessWidget {
-  const _FinanceStatTile({required this.label, required this.value});
+  const _FinanceStatTile({
+    required this.label,
+    required this.value,
+    this.accent = const Color(0xFF0C3E42),
+    this.background = const Color(0xFFF4F7F8),
+  });
 
   final String label;
   final String value;
+  final Color accent;
+  final Color background;
 
   @override
   Widget build(BuildContext context) {
-    return GlassPanel(
-      enableBlur: false,
-      radius: 16,
+    return Container(
+      width: 150,
       padding: const EdgeInsets.all(12),
-      child: SizedBox(
-        width: 150,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 12)),
-            const SizedBox(height: 3),
-            Text(
-              value,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                fontSize: 18,
-                color: Color(0xFF0C3E42),
-              ),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: accent.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: accent.withValues(alpha: 0.9),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 18,
+              color: accent,
+            ),
+          ),
+        ],
       ),
     );
   }
+}
+
+bool _financeSaleIsPaid(Map<String, dynamic> item) {
+  if (item['invoice_status']?.toString() == 'pago') {
+    return true;
+  }
+
+  return item['billing']?['status']?.toString() == 'paid';
+}
+
+bool _financeSaleHasDocument(Map<String, dynamic> item) {
+  return item['invoice_id'] != null || item['invoiced'] == true;
+}
+
+bool _financeSaleNeedsInvoice(Map<String, dynamic> item) {
+  return item['to_invoice'] == true && !_financeSaleHasDocument(item);
+}
+
+String _financeSaleStatus(Map<String, dynamic> item) {
+  if (_financeSaleIsPaid(item)) {
+    return 'Pago';
+  }
+  if (_financeSaleHasDocument(item)) {
+    return 'Pendente';
+  }
+  if (_financeSaleNeedsInvoice(item)) {
+    return 'A faturar';
+  }
+  return 'Sem documento';
+}
+
+Color _financeSaleStatusColor(Map<String, dynamic> item) {
+  if (_financeSaleIsPaid(item)) {
+    return const Color(0xFF2E7D57);
+  }
+  if (_financeSaleHasDocument(item)) {
+    return const Color(0xFFB26A00);
+  }
+  if (_financeSaleNeedsInvoice(item)) {
+    return const Color(0xFF1565C0);
+  }
+  return const Color(0xFF6B7F80);
 }
 
 class _FinanceRow extends StatelessWidget {
@@ -7430,10 +8080,8 @@ class _FinanceRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final status = item['to_invoice'] == true ? 'A faturar' : 'OK';
-    final statusColor = item['to_invoice'] == true
-        ? CupertinoColors.systemOrange
-        : const Color(0xFF2E7D57);
+    final status = _financeSaleStatus(item);
+    final statusColor = _financeSaleStatusColor(item);
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       child: GlassPanel(
@@ -8182,11 +8830,13 @@ class _SimpleList extends StatelessWidget {
     required this.items,
     required this.titleKey,
     required this.subtitleBuilder,
+    this.onItemTap,
   });
 
   final List<dynamic> items;
   final String titleKey;
   final String Function(Map<String, dynamic>) subtitleBuilder;
+  final Future<void> Function(Map<String, dynamic>)? onItemTap;
 
   @override
   Widget build(BuildContext context) {
@@ -8209,7 +8859,7 @@ class _SimpleList extends StatelessWidget {
                 child: Builder(
                   builder: (context) {
                     final item = (raw as Map).cast<String, dynamic>();
-                    return Column(
+                    final content = Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
@@ -8225,6 +8875,16 @@ class _SimpleList extends StatelessWidget {
                           style: const TextStyle(color: Color(0xFF1A5A5D)),
                         ),
                       ],
+                    );
+
+                    if (onItemTap == null) {
+                      return content;
+                    }
+
+                    return GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => onItemTap!(item),
+                      child: content,
                     );
                   },
                 ),

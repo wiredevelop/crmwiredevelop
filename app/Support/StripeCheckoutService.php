@@ -8,6 +8,7 @@ use App\Models\PackItem;
 use App\Models\Product;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
+use App\Support\WalletPackPurchaseService;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -19,6 +20,11 @@ use Stripe\StripeClient;
 
 class StripeCheckoutService
 {
+    public function __construct(
+        private readonly WalletPackPurchaseService $packPurchaseService,
+    ) {
+    }
+
     public function createPendingPackPaymentSheet(
         Client $client,
         Product $product,
@@ -155,6 +161,14 @@ class StripeCheckoutService
                     'invoice_id' => (string) $invoice->id,
                     'cancel_token' => $cancelToken,
                     'wants_invoice' => $wantsInvoice ? '1' : '0',
+                    'billing_name' => $client->billing_name ?: $client->name,
+                    'billing_email' => $client->billing_email ?: $client->email,
+                    'billing_phone' => $client->billing_phone ?: $client->phone,
+                    'billing_vat' => $client->billing_vat,
+                    'billing_address' => $client->billing_address,
+                    'billing_postal_code' => $client->billing_postal_code,
+                    'billing_city' => $client->billing_city,
+                    'billing_country' => $client->billing_country,
                 ])
             );
 
@@ -251,6 +265,10 @@ class StripeCheckoutService
 
     public function syncPendingForClient(Client $client): void
     {
+        if (! $this->isConfigured()) {
+            return;
+        }
+
         $transactions = WalletTransaction::query()
             ->where('payment_provider', 'stripe')
             ->whereHas('wallet', fn ($query) => $query->where('client_id', $client->id))
@@ -393,12 +411,7 @@ class StripeCheckoutService
 
     private function productLabel(Product $product, PackItem $packItem): string
     {
-        $label = $product->name;
-        if ($packItem->hours) {
-            $label .= ' - '.$packItem->hours.'h';
-        }
-
-        return $label;
+        return $this->packPurchaseService->productLabel($product, $packItem, 1);
     }
 
     private function syncPendingTransaction(WalletTransaction $transaction): void
@@ -455,14 +468,18 @@ class StripeCheckoutService
             return;
         }
 
-        DB::transaction(function () use ($transaction, $paymentIntent, $metadata, $product, $packItem, $wallet) {
+        DB::transaction(function () use ($transaction, $paymentIntent, $metadata, $product, $packItem, $wallet, $client) {
             $quantity = max(1, (int) ($metadata['quantity'] ?? data_get($paymentIntent, 'metadata.quantity', 1)));
             $seconds = (int) round(((float) $packItem->hours) * 3600 * $quantity);
+            $billing = $this->billingSnapshot($client);
+            $wantsInvoice = ! empty($billing['billing_vat']);
 
             $transaction->seconds = $seconds;
             $transaction->description = 'Compra Stripe: '.$this->productLabel($product, $packItem);
             $transaction->payment_metadata = array_merge($metadata, [
                 'status' => 'paid',
+                'wants_invoice' => $wantsInvoice,
+                'billing' => $billing,
                 'customer' => $paymentIntent['customer'] ?? null,
                 'payment_intent' => $paymentIntent['id'] ?? null,
                 'last_payment_error' => data_get($paymentIntent, 'last_payment_error.message'),
@@ -480,7 +497,9 @@ class StripeCheckoutService
                         'status' => 'pago',
                         'paid_at' => now(),
                         'payment_method' => 'Stripe Payment Sheet',
-                        'payment_account' => (string) ($paymentIntent['id'] ?? 'Stripe'),
+                        'payment_account' => $wantsInvoice
+                            ? 'Documento com NIF solicitado'
+                            : 'Sem pedido de documento com NIF',
                     ]);
 
                     $invoice->items()->updateOrCreate(
@@ -516,11 +535,15 @@ class StripeCheckoutService
         DB::transaction(function () use ($transaction, $session, $metadata, $product, $packItem, $wallet, $client) {
             $quantity = max(1, (int) ($metadata['quantity'] ?? 1));
             $seconds = (int) round(((float) $packItem->hours) * 3600 * $quantity);
+            $billing = $this->syncBillingProfile($client, $session);
+            $wantsInvoice = ! empty($billing['billing_vat']);
 
             $transaction->seconds = $seconds;
             $transaction->description = 'Compra Stripe: '.$this->productLabel($product, $packItem);
             $transaction->payment_metadata = array_merge($metadata, [
                 'status' => 'paid',
+                'wants_invoice' => $wantsInvoice,
+                'billing' => $billing,
                 'customer' => $session['customer'] ?? null,
                 'payment_intent' => $session['payment_intent'] ?? null,
                 'customer_details' => $session['customer_details'] ?? null,
@@ -538,7 +561,9 @@ class StripeCheckoutService
                         'status' => 'pago',
                         'paid_at' => now(),
                         'payment_method' => 'Stripe Checkout',
-                        'payment_account' => (string) ($session['payment_intent'] ?? 'Stripe'),
+                        'payment_account' => $wantsInvoice
+                            ? 'Documento com NIF solicitado'
+                            : 'Sem pedido de documento com NIF',
                     ]);
 
                     $invoice->items()->updateOrCreate(
@@ -552,8 +577,6 @@ class StripeCheckoutService
                     );
                 }
             }
-
-            $this->syncBillingProfile($client, $session);
         });
     }
 
@@ -610,7 +633,7 @@ class StripeCheckoutService
         }
     }
 
-    private function syncBillingProfile(Client $client, array $session): void
+    private function syncBillingProfile(Client $client, array $session): array
     {
         $customerDetails = is_array($session['customer_details'] ?? null)
             ? $session['customer_details']
@@ -640,6 +663,8 @@ class StripeCheckoutService
         if ($payload !== []) {
             $client->forceFill($payload)->save();
         }
+
+        return $this->billingSnapshot($client->fresh());
     }
 
     private function billingSnapshot(Client $client): array
@@ -684,5 +709,10 @@ class StripeCheckoutService
             'api_key' => (string) config('services.stripe.secret_key'),
             'stripe_version' => (string) config('services.stripe.api_version'),
         ]);
+    }
+
+    private function isConfigured(): bool
+    {
+        return trim((string) config('services.stripe.secret_key')) !== '';
     }
 }

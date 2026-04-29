@@ -14,6 +14,10 @@ class StripeTerminalController extends Controller
 
     public function connectionToken(StripeTerminalService $terminal): JsonResponse
     {
+        if (! $this->hasStripeSecretKey()) {
+            return $this->error('Stripe Terminal indisponível: STRIPE_SECRET_KEY em falta.', [], 503);
+        }
+
         $locationId = $terminal->terminalLocationId();
 
         if (! $locationId) {
@@ -32,6 +36,14 @@ class StripeTerminalController extends Controller
 
     public function paymentIntent(Request $request, StripeTerminalService $terminal): JsonResponse
     {
+        if (! $this->hasStripeSecretKey()) {
+            return $this->error('Stripe Terminal indisponível: STRIPE_SECRET_KEY em falta.', [], 503);
+        }
+
+        if (! $terminal->terminalLocationId()) {
+            return $this->error('STRIPE_TERMINAL_LOCATION_ID não configurado.', [], 503);
+        }
+
         $data = $request->validate([
             'amount' => ['required', 'integer', 'min:1'],
             'currency' => ['required', 'string', 'size:3'],
@@ -58,6 +70,10 @@ class StripeTerminalController extends Controller
 
     public function sync(Request $request, StripeTerminalService $terminal): JsonResponse
     {
+        if (! $this->hasStripeSecretKey()) {
+            return $this->error('Stripe Terminal indisponível: STRIPE_SECRET_KEY em falta.', [], 503);
+        }
+
         $data = $request->validate([
             'payment_intent_id' => ['required', 'string', 'max:255'],
         ]);
@@ -82,5 +98,10 @@ class StripeTerminalController extends Controller
                 'paid_at' => $payment->paid_at?->toIso8601String(),
             ],
         ]);
+    }
+
+    private function hasStripeSecretKey(): bool
+    {
+        return trim((string) config('services.stripe.secret_key')) !== '';
     }
 }

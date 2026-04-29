@@ -20,7 +20,7 @@ class FinanceApiController extends Controller
 
     public function index(): JsonResponse
     {
-        $projectSales = Project::with(['client:id,name', 'quote:id,project_id,price_development,price_domain_first_year,price_hosting_first_year,price_maintenance_monthly,include_domain,include_hosting', 'invoice:id,project_id,total,status,issued_at,created_at'])
+        $projectSales = Project::with(['client:id,name', 'quote:id,project_id,price_development,price_domain_first_year,price_hosting_first_year,price_maintenance_monthly,include_domain,include_hosting', 'invoice:id,project_id,number,total,status,issued_at,paid_at,payment_method,payment_account,created_at'])
             ->where('status', 'concluido')
             ->orderByDesc('updated_at')
             ->take(200)
@@ -43,13 +43,29 @@ class FinanceApiController extends Controller
                     'invoiced' => (bool) $invoice,
                     'to_invoice' => (bool) $invoice,
                     'invoice_id' => $invoice?->id,
+                    'document_number' => $invoice?->number,
                     'invoice_status' => $invoice?->status,
+                    'project' => [
+                        'id' => $project->id,
+                        'name' => $project->name,
+                        'status' => $project->status,
+                    ],
+                    'invoice' => $invoice ? [
+                        'id' => $invoice->id,
+                        'number' => $invoice->number,
+                        'status' => $invoice->status,
+                        'total' => (float) $invoice->total,
+                        'issued_at' => $invoice->issued_at?->toDateString(),
+                        'paid_at' => $invoice->paid_at?->toDateString(),
+                        'payment_method' => $invoice->payment_method,
+                        'payment_account' => $invoice->payment_account,
+                    ] : null,
                     'sort_at' => $date?->timestamp ?? 0,
                 ];
             })
             ->toBase();
 
-        $productSales = WalletTransaction::with(['wallet.client:id,name', 'product:id,name,type', 'packItem:id,hours', 'intervention:id,type,notes,finish_notes,total_seconds,hourly_rate,is_pack', 'invoice:id,status'])
+        $productSales = WalletTransaction::with(['wallet.client:id,name', 'product:id,name,type', 'packItem:id,hours,pack_price,validity_months', 'intervention:id,type,notes,finish_notes,total_seconds,hourly_rate,is_pack', 'invoice:id,number,total,status,issued_at,paid_at,payment_method,payment_account'])
             ->where(function ($query) {
                 $query->where('type', 'purchase')
                     ->orWhere(function ($subQuery) {
@@ -83,6 +99,27 @@ class FinanceApiController extends Controller
                     'document_number' => $transaction->invoice?->number,
                     'invoice_status' => $transaction->invoice?->status,
                     'payment_reference' => $transaction->payment_reference,
+                    'quantity' => max(1, (int) data_get($transaction->payment_metadata, 'quantity', 1)),
+                    'product' => $transaction->product ? [
+                        'id' => $transaction->product->id,
+                        'name' => $transaction->product->name,
+                        'type' => $transaction->product->type,
+                    ] : null,
+                    'pack_item' => $transaction->packItem ? [
+                        'hours' => $transaction->packItem->hours,
+                        'pack_price' => (float) $transaction->packItem->pack_price,
+                        'validity_months' => $transaction->packItem->validity_months,
+                    ] : null,
+                    'invoice' => $transaction->invoice ? [
+                        'id' => $transaction->invoice->id,
+                        'number' => $transaction->invoice->number,
+                        'status' => $transaction->invoice->status,
+                        'total' => (float) $transaction->invoice->total,
+                        'issued_at' => $transaction->invoice->issued_at?->toDateString(),
+                        'paid_at' => $transaction->invoice->paid_at?->toDateString(),
+                        'payment_method' => $transaction->invoice->payment_method,
+                        'payment_account' => $transaction->invoice->payment_account,
+                    ] : null,
                     'billing' => $transaction->payment_provider === 'stripe'
                         ? [
                             'provider' => 'stripe',
@@ -130,6 +167,7 @@ class FinanceApiController extends Controller
                 'invoice_id' => null,
                 'invoice_status' => null,
                 'transaction_id' => $payment->id,
+                'invoice' => null,
                 'payment_reference' => $payment->payment_intent_id,
                 'billing' => [
                     'provider' => 'stripe_terminal',

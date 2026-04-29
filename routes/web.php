@@ -185,6 +185,9 @@ Route::middleware(['auth', 'force.password.change'])->group(function () {
     Route::post('/wallets/packs', [WalletPackController::class, 'store'])
         ->middleware('admin.only')
         ->name('wallets.packs.store');
+    Route::post('/wallets/packs/stripe', [WalletPackController::class, 'checkoutStripe'])
+        ->middleware('admin.only')
+        ->name('wallets.packs.stripe');
 });
 
 require __DIR__.'/auth.php';

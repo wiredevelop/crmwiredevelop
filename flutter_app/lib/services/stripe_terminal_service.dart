@@ -42,8 +42,12 @@ class StripeTerminalService extends ChangeNotifier {
 
   ApiClient get _client => controller.client;
 
-  Future<void> initialize() async {
-    if (_initializing || _initialized) {
+  Future<void> initialize({bool requestPermissions = false}) async {
+    if (_initializing) {
+      return;
+    }
+
+    if (_initialized && !requestPermissions) {
       return;
     }
 
@@ -52,7 +56,9 @@ class StripeTerminalService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _requestPermissions();
+      if (requestPermissions) {
+        await _requestPermissions();
+      }
 
       if (!Terminal.isInitialized) {
         await Terminal.initTerminal(
@@ -96,7 +102,7 @@ class StripeTerminalService extends ChangeNotifier {
   }
 
   Future<void> connectLocalReader() async {
-    await initialize();
+    await initialize(requestPermissions: true);
     if (!_supported) {
       throw Exception('Este dispositivo não suporta Tap to Pay.');
     }
@@ -160,6 +166,8 @@ class StripeTerminalService extends ChangeNotifier {
     if (amountCents <= 0) {
       throw Exception('Indica um valor válido.');
     }
+
+    await initialize(requestPermissions: true);
 
     if (!isConnected) {
       await connectLocalReader();
@@ -290,12 +298,30 @@ class StripeTerminalService extends ChangeNotifier {
     ];
 
     final statuses = await permissions.request();
+    final permanentlyDenied = statuses.entries.where(
+      (entry) => entry.value.isPermanentlyDenied || entry.value.isRestricted,
+    );
+    if (permanentlyDenied.isNotEmpty) {
+      throw Exception(
+        'As permissões de localização e bluetooth foram recusadas. '
+        'Abre as definições da app para as ativares e tenta novamente.',
+      );
+    }
+
     final denied = statuses.entries.where(
       (entry) => !entry.value.isGranted && !entry.value.isLimited,
     );
     if (denied.isNotEmpty) {
       throw Exception(
-        'É necessário permitir localização e bluetooth para usar o terminal.',
+        'É necessário permitir localização e bluetooth para usar o terminal. '
+        'Aceita o pedido de permissão do Android e tenta novamente.',
+      );
+    }
+
+    final locationService = await Permission.locationWhenInUse.serviceStatus;
+    if (locationService != ServiceStatus.enabled) {
+      throw Exception(
+        'Ativa a localização do dispositivo para usar o terminal.',
       );
     }
   }

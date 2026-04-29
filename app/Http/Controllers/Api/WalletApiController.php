@@ -14,6 +14,8 @@ use App\Models\Intervention;
 use App\Models\Product;
 use App\Models\Wallet;
 use App\Models\WalletTransaction;
+use App\Support\StripeCheckoutService;
+use App\Support\WalletPackPurchaseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -155,9 +157,18 @@ class WalletApiController extends Controller
         return $this->success(['transaction' => new WalletTransactionResource($transaction)], 'Transação registada.', 201);
     }
 
-    public function destroyTransaction(WalletTransaction $transaction): JsonResponse
+    public function destroyTransaction(
+        WalletTransaction $transaction,
+        StripeCheckoutService $stripeCheckout
+    ): JsonResponse
     {
         $transaction->load('wallet');
+
+        if ($this->isPendingStripeTransaction($transaction)) {
+            $stripeCheckout->cancelPaymentIntent($transaction->payment_reference);
+
+            return $this->success([], 'Transação pendente cancelada.');
+        }
 
         DB::transaction(function () use ($transaction) {
             if ($transaction->invoice_id) {
@@ -176,11 +187,11 @@ class WalletApiController extends Controller
 
             $wallet = $transaction->wallet;
             if ($wallet) {
-                if ($transaction->seconds !== null) {
+                if ($this->transactionAffectsWalletBalance($transaction) && $transaction->seconds !== null) {
                     $wallet->balance_seconds -= (int) $transaction->seconds;
                 }
 
-                if ($transaction->amount !== null) {
+                if ($this->transactionAffectsWalletBalance($transaction) && $transaction->amount !== null) {
                     $wallet->balance_amount = (float) $wallet->balance_amount - (float) $transaction->amount;
                 }
 
@@ -193,7 +204,27 @@ class WalletApiController extends Controller
         return $this->success([], 'Transação removida.');
     }
 
-    public function storePack(Request $request): JsonResponse
+    private function isPendingStripeTransaction(WalletTransaction $transaction): bool
+    {
+        $payment = is_array($transaction->payment_metadata) ? $transaction->payment_metadata : [];
+
+        return $transaction->payment_provider === 'stripe'
+            && ($payment['status'] ?? null) === 'pending'
+            && is_string($transaction->payment_reference)
+            && $transaction->payment_reference !== '';
+    }
+
+    private function transactionAffectsWalletBalance(WalletTransaction $transaction): bool
+    {
+        $payment = is_array($transaction->payment_metadata) ? $transaction->payment_metadata : [];
+
+        return ! (
+            $transaction->payment_provider === 'stripe'
+            && ($payment['status'] ?? null) === 'pending'
+        );
+    }
+
+    public function storePack(Request $request, WalletPackPurchaseService $purchaseService): JsonResponse
     {
         $data = $request->validate([
             'client_id' => ['required', 'exists:clients,id'],
@@ -210,34 +241,13 @@ class WalletApiController extends Controller
             return $this->error('Opção de pack inválida.', [], 422);
         }
 
-        $hours = (float) ($packItem->hours ?? 0);
-        $seconds = (int) round($hours * 3600 * $quantity);
-        $amount = (float) (($packItem->pack_price ?? 0) * $quantity);
+        $client = Client::findOrFail($data['client_id']);
+        $transaction = $purchaseService
+            ->registerManualPurchase($client, $product, $packItem, $quantity)['transaction'];
+        $transaction->load(['product:id,name', 'packItem:id,product_id,hours,pack_price,validity_months', 'invoice:id,number,status']);
 
-        $wallet = Wallet::firstOrCreate(['client_id' => $data['client_id']], ['balance_seconds' => 0, 'balance_amount' => 0]);
-        $description = 'Compra de pack: '.$product->name;
-        if ($packItem->hours) {
-            $description .= ' - '.$packItem->hours.'h';
-        }
-        if ($quantity > 1) {
-            $description .= ' (x'.$quantity.')';
-        }
-
-        $transaction = WalletTransaction::create([
-            'wallet_id' => $wallet->id,
-            'type' => 'purchase',
-            'seconds' => $seconds,
-            'amount' => $amount,
-            'description' => $description,
-            'product_id' => $product->id,
-            'pack_item_id' => $packItem->id,
-            'transaction_at' => now(),
-        ]);
-
-        $wallet->balance_seconds += $seconds;
-        $wallet->balance_amount = (float) $wallet->balance_amount + $amount;
-        $wallet->save();
-
-        return $this->success(['transaction' => new WalletTransactionResource($transaction)], 'Pack associado e transação registada.', 201);
+        return $this->success([
+            'transaction' => new WalletTransactionResource($transaction),
+        ], 'Compra manual registada e documento pendente criado.', 201);
     }
 }

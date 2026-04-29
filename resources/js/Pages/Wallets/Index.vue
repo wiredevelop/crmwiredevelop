@@ -9,7 +9,8 @@ const props = defineProps({
     selectedClient: Object,
     wallet: Object,
     transactions: Array,
-    packs: Array
+    packs: Array,
+    stripeAvailable: Boolean
 })
 
 const clientSelection = ref(props.selectedClientId ? String(props.selectedClientId) : '')
@@ -49,6 +50,12 @@ const submitPack = () => {
     })
 }
 
+const submitStripePack = () => {
+    packForm.post('/wallets/packs/stripe', {
+        preserveScroll: true
+    })
+}
+
 const formatHours = (seconds) => {
     if (seconds === null || seconds === undefined) return '—'
     const sign = seconds < 0 ? '-' : ''
@@ -66,6 +73,19 @@ const formatAmount = (value) => {
     const sign = amount < 0 ? '-' : ''
     const abs = Math.abs(amount)
     return `${sign}${abs.toLocaleString('pt-PT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`
+}
+
+const pendingHoursLabel = (tx) => {
+    const payment = tx?.payment_metadata || {}
+    const packItem = tx?.pack_item || null
+    const quantity = Number(payment?.quantity || 1)
+
+    if (tx?.payment_provider !== 'stripe' || payment?.status !== 'pending' || !packItem?.hours) {
+        return null
+    }
+
+    const totalHours = Number(packItem.hours) * Math.max(quantity, 1)
+    return `Pendente (+${totalHours}h)`
 }
 
 const balanceHours = computed(() => formatHours(props.wallet?.balance_seconds ?? 0))
@@ -195,7 +215,12 @@ const deleteTransaction = (tx) => {
                             <button type="button" @click="submitPack"
                                 class="w-full bg-[#015557] text-white px-4 py-2 rounded hover:bg-[#014548] disabled:opacity-50"
                                 :disabled="packForm.processing || !packForm.client_id || !packForm.product_id || !packForm.pack_item_id">
-                                Registar compra
+                                Registar compra manual
+                            </button>
+                            <button type="button" @click="submitStripePack"
+                                class="w-full border border-[#015557] text-[#015557] px-4 py-2 rounded hover:bg-[#015557]/5 disabled:opacity-50"
+                                :disabled="packForm.processing || !stripeAvailable || !packForm.client_id || !packForm.product_id || !packForm.pack_item_id">
+                                {{ stripeAvailable ? 'Stripe' : 'Stripe indisponível' }}
                             </button>
                         </div>
                     </div>
@@ -232,8 +257,11 @@ const deleteTransaction = (tx) => {
                                         <div v-if="tx.intervention" class="text-xs text-gray-500">
                                             Intervenção: {{ tx.intervention.type }}
                                         </div>
+                                        <div v-if="tx.invoice" class="text-xs text-gray-500">
+                                            Documento: {{ tx.invoice.number }} · {{ tx.invoice.status }}
+                                        </div>
                                     </td>
-                                    <td class="py-2 px-2 font-mono">{{ formatHours(tx.seconds) }}</td>
+                                    <td class="py-2 px-2 font-mono">{{ pendingHoursLabel(tx) || formatHours(tx.seconds) }}</td>
                                     <td class="py-2 px-2">{{ formatAmount(tx.amount) }}</td>
                                     <td class="py-2 px-2 text-right">
                                         <button

@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:app_links/app_links.dart';
 import 'package:flutter/cupertino.dart';
 
 import 'app_controller.dart';
@@ -13,17 +16,99 @@ Future<void> main() async {
   runApp(WireCrmApp(controller: controller));
 }
 
-class WireCrmApp extends StatelessWidget {
+class WireCrmApp extends StatefulWidget {
   const WireCrmApp({super.key, required this.controller});
 
   final AppController controller;
 
   @override
+  State<WireCrmApp> createState() => _WireCrmAppState();
+}
+
+class _WireCrmAppState extends State<WireCrmApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  late final AppLinks _appLinks;
+  StreamSubscription<Uri>? _linkSubscription;
+  int _lastHandledWalletReturnVersion = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _appLinks = AppLinks();
+    widget.controller.addListener(_handleControllerChange);
+    _setupDeepLinks();
+  }
+
+  @override
+  void dispose() {
+    _linkSubscription?.cancel();
+    widget.controller.removeListener(_handleControllerChange);
+    super.dispose();
+  }
+
+  Future<void> _setupDeepLinks() async {
+    try {
+      final initialUri = await _appLinks.getInitialLink();
+      if (initialUri != null) {
+        widget.controller.handleIncomingUri(initialUri);
+      }
+    } catch (_) {}
+
+    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
+      widget.controller.handleIncomingUri(uri);
+    }, onError: (_) {});
+  }
+
+  void _handleControllerChange() {
+    if (!mounted) {
+      return;
+    }
+
+    if (!widget.controller.isReady ||
+        !widget.controller.isAuthenticated ||
+        widget.controller.mustChangePassword) {
+      return;
+    }
+
+    final version = widget.controller.walletCheckoutReturnVersion;
+    final pending = widget.controller.pendingWalletCheckoutReturn;
+    if (pending == null || version == _lastHandledWalletReturnVersion) {
+      return;
+    }
+
+    _lastHandledWalletReturnVersion = version;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      final paymentReturn = widget.controller
+          .consumePendingWalletCheckoutReturn();
+      final navigator = _navigatorKey.currentState;
+
+      if (paymentReturn == null || navigator == null) {
+        return;
+      }
+
+      navigator.push(
+        CupertinoPageRoute(
+          builder: (context) => ClientWalletScreen(
+            controller: widget.controller,
+            paymentReturn: paymentReturn,
+          ),
+        ),
+      );
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: controller,
+      animation: widget.controller,
       builder: (context, _) {
         return CupertinoApp(
+          navigatorKey: _navigatorKey,
           title: 'WireDevelop',
           debugShowCheckedModeBanner: false,
           theme: const CupertinoThemeData(
@@ -43,12 +128,14 @@ class WireCrmApp extends StatelessWidget {
               ),
             ),
           ),
-          home: controller.isReady
-              ? (controller.isAuthenticated
-                    ? (controller.mustChangePassword
-                          ? ForcedPasswordChangeScreen(controller: controller)
-                          : HomeShell(controller: controller))
-                    : LoginScreen(controller: controller))
+          home: widget.controller.isReady
+              ? (widget.controller.isAuthenticated
+                    ? (widget.controller.mustChangePassword
+                          ? ForcedPasswordChangeScreen(
+                              controller: widget.controller,
+                            )
+                          : HomeShell(controller: widget.controller))
+                    : LoginScreen(controller: widget.controller))
               : const SplashScreen(),
         );
       },

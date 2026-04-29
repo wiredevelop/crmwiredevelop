@@ -285,6 +285,10 @@
         </div>
     @endif
 
+    <div style="margin-top: 10px; text-align: center;">
+        <span>Se desejar fatura com numero de contribuinte deve sinalizar antes de efetuar o pagamento apenas</span>
+    </div>
+
     <div class="footer">
         WireDevelop — Soluções Digitais & Desenvolvimento Web<br>
         www.wiredevelop.pt — geral@wiredevelop.pt
