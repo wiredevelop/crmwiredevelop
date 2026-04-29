@@ -96,8 +96,29 @@
                 const fallbackUrl = @json($fallbackUrl);
                 const isMobileFlow = @json(($appUrl ?? null) !== null);
                 const hint = document.getElementById('status-hint');
+                const appButton = document.getElementById('open-app');
                 let fallbackTimer = null;
                 let appOpened = false;
+                const isAndroid = /Android/i.test(window.navigator.userAgent || '');
+
+                const resolveAppUrl = () => {
+                    if (!appUrl) {
+                        return appUrl;
+                    }
+
+                    if (!isAndroid || !appUrl.startsWith('wirecrm://')) {
+                        return appUrl;
+                    }
+
+                    const raw = appUrl.replace('wirecrm://', '');
+                    return `intent://${raw}#Intent;scheme=wirecrm;package=app.wiredevelop.pt;end`;
+                };
+
+                const launchUrl = resolveAppUrl();
+
+                if (appButton && launchUrl) {
+                    appButton.setAttribute('href', launchUrl);
+                }
 
                 const redirectToFallback = () => {
                     if (!fallbackUrl || appOpened) {
@@ -107,7 +128,7 @@
                 };
 
                 const openApp = () => {
-                    if (!isMobileFlow || !appUrl) {
+                    if (!isMobileFlow || !launchUrl) {
                         return;
                     }
 
@@ -117,7 +138,7 @@
                         }
                     }, fallbackUrl ? 1800 : 0);
 
-                    window.location.href = appUrl;
+                    window.location.href = launchUrl;
                 };
 
                 document.addEventListener('visibilitychange', () => {

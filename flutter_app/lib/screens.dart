@@ -798,7 +798,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return;
     }
 
-    await Navigator.of(context).push(
+    final changed = await Navigator.of(context).push<bool>(
       CupertinoPageRoute(
         builder: (context) => InvoiceDetailScreen(
           controller: widget.controller,
@@ -807,6 +807,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ),
       ),
     );
+
+    if (changed == true && mounted) {
+      await _load();
+    }
   }
 
   @override
@@ -4214,6 +4218,7 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
     super.initState();
     _terminalService = StripeTerminalService(controller: widget.controller)
       ..addListener(_onTerminalChanged);
+    unawaited(_bootstrap());
   }
 
   @override
@@ -4225,9 +4230,9 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
     super.dispose();
   }
 
-  Future<void> _bootstrap() async {
+  Future<void> _bootstrap({bool requestPermissions = false}) async {
     try {
-      await _terminalService.initialize();
+      await _terminalService.initialize(requestPermissions: requestPermissions);
     } catch (_) {}
   }
 
@@ -4308,6 +4313,7 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
     final feeAmount = _feeAmountCents / 100;
     final grossAmount = _grossAmountCents / 100;
     final baseAmount = _baseAmountCents / 100;
+    final diagnostics = _terminalService.deviceDiagnostics;
 
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
@@ -4317,7 +4323,7 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
           children: [
             CupertinoButton(
               padding: EdgeInsets.zero,
-              onPressed: _bootstrap,
+              onPressed: () => _bootstrap(requestPermissions: true),
               child: const Icon(CupertinoIcons.refresh),
             ),
             CupertinoButton(
@@ -4348,12 +4354,28 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
                       Text(status),
                       const SizedBox(height: 8),
                       Text(
-                        _terminalService.supported
-                            ? (_terminalService.isConnected
-                                  ? 'Ligado ao leitor local.'
-                                  : 'Tap to Pay disponível neste dispositivo.')
-                            : 'Sem suporte Tap to Pay neste dispositivo.',
+                        _terminalService.supportKnown
+                            ? (_terminalService.supported
+                                  ? (_terminalService.isConnected
+                                        ? 'Ligado ao leitor local.'
+                                        : 'Tap to Pay disponível neste dispositivo.')
+                                  : 'Tap to Pay indisponível neste momento.')
+                            : 'Compatibilidade Tap to Pay ainda por verificar.',
                       ),
+                      if (_terminalService.lastTerminalErrorCode != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Último erro Stripe: ${_terminalService.lastTerminalErrorCode?.name}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                      if (_terminalService.lastTerminalErrorMessage != null &&
+                          _terminalService
+                              .lastTerminalErrorMessage!
+                              .isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(_terminalService.lastTerminalErrorMessage!),
+                      ],
                       if (_terminalService.reader != null) ...[
                         const SizedBox(height: 8),
                         Text(
@@ -4362,6 +4384,102 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
                       ],
                     ],
                   ),
+                ),
+                CardSection(
+                  title: 'Diagnóstico local',
+                  child: diagnostics == null
+                      ? const Text('A recolher diagnóstico do Android...')
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _InfoLine(
+                              'Dispositivo',
+                              '${diagnostics['manufacturer'] ?? '—'} ${diagnostics['model'] ?? ''}'
+                                  .trim(),
+                            ),
+                            _InfoLine(
+                              'Android',
+                              '${diagnostics['androidRelease'] ?? '—'} (SDK ${diagnostics['sdkInt'] ?? '—'})',
+                            ),
+                            _InfoLine(
+                              'App debug',
+                              _boolLabel(
+                                diagnostics['isDebuggableApp'] == true,
+                              ),
+                            ),
+                            _InfoLine(
+                              'Opções programador',
+                              _boolLabel(
+                                diagnostics['developerOptionsEnabled'] == true,
+                              ),
+                            ),
+                            _InfoLine(
+                              'ADB ativo',
+                              _boolLabel(diagnostics['adbEnabled'] == true),
+                            ),
+                            _InfoLine(
+                              'NFC presente',
+                              _boolLabel(diagnostics['hasNfc'] == true),
+                            ),
+                            _InfoLine(
+                              'NFC ativo',
+                              _boolLabel(diagnostics['nfcEnabled'] == true),
+                            ),
+                            _InfoLine(
+                              'Bluetooth LE',
+                              _boolLabel(diagnostics['hasBluetoothLe'] == true),
+                            ),
+                            _InfoLine(
+                              'Google Play Services',
+                              _boolLabel(
+                                diagnostics['hasGooglePlayServices'] == true,
+                              ),
+                            ),
+                            _InfoLine(
+                              'Play Store',
+                              _boolLabel(
+                                diagnostics['hasGooglePlayStore'] == true,
+                              ),
+                            ),
+                            _InfoLine(
+                              'Hardware keystore',
+                              _boolLabel(
+                                diagnostics['hasHardwareKeystore'] == true &&
+                                    diagnostics['hardwareKeystoreVersion100'] ==
+                                        true,
+                              ),
+                            ),
+                            if ((diagnostics['securityPatch']?.toString() ?? '')
+                                .isNotEmpty)
+                              _InfoLine(
+                                'Patch segurança',
+                                diagnostics['securityPatch'].toString(),
+                              ),
+                          ],
+                        ),
+                ),
+                CardSection(
+                  title: 'Logs do terminal',
+                  child: _terminalService.logs.isEmpty
+                      ? const Text('Sem logs ainda.')
+                      : Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: _terminalService.logs
+                              .take(12)
+                              .map(
+                                (entry) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 6),
+                                  child: Text(
+                                    entry,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF163F41),
+                                    ),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
                 ),
                 CardSection(
                   title: 'Cobrança presencial',
@@ -4523,6 +4641,8 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
       ),
     );
   }
+
+  String _boolLabel(bool value) => value ? 'Sim' : 'Não';
 }
 
 Uri _apiUri(
@@ -4843,7 +4963,7 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
       return;
     }
 
-    await Navigator.of(context).push(
+    final changed = await Navigator.of(context).push<bool>(
       CupertinoPageRoute(
         builder: (context) => InvoiceDetailScreen(
           controller: widget.controller,
@@ -4852,6 +4972,10 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
         ),
       ),
     );
+
+    if (changed == true && mounted) {
+      await _load();
+    }
   }
 
   @override
@@ -4929,8 +5053,10 @@ class InvoiceDetailScreen extends StatefulWidget {
 
 class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   bool _loading = true;
+  bool _actionLoading = false;
   String? _error;
   Map<String, dynamic>? _invoice;
+  final Set<int> _expandedInvoiceItemIds = <int>{};
 
   @override
   void initState() {
@@ -4962,11 +5088,212 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
     }
   }
 
+  bool get _canManageInvoice => !widget.controller.isClientUser;
+
+  Future<void> _markPaid() async {
+    if (_actionLoading) {
+      return;
+    }
+
+    setState(() => _actionLoading = true);
+    try {
+      final result = await widget.controller.client.post(
+        '/invoices/${widget.invoiceId}/paid',
+      );
+      final invoice = ((result['data'] as Map?)?['invoice'] as Map?)
+          ?.cast<String, dynamic>();
+      if (invoice != null) {
+        setState(() => _invoice = {...?_invoice, ...invoice});
+      }
+      await _load();
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Documento pago',
+        message: 'A fatura foi marcada como paga.',
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    } finally {
+      if (mounted) {
+        setState(() => _actionLoading = false);
+      }
+    }
+  }
+
+  Future<void> _markPending() async {
+    if (_actionLoading) {
+      return;
+    }
+
+    setState(() => _actionLoading = true);
+    try {
+      final result = await widget.controller.client.post(
+        '/invoices/${widget.invoiceId}/pending',
+      );
+      final invoice = ((result['data'] as Map?)?['invoice'] as Map?)
+          ?.cast<String, dynamic>();
+      if (invoice != null) {
+        setState(() => _invoice = {...?_invoice, ...invoice});
+      }
+      await _load();
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Documento pendente',
+        message: 'A fatura foi marcada como pendente.',
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    } finally {
+      if (mounted) {
+        setState(() => _actionLoading = false);
+      }
+    }
+  }
+
+  Future<void> _uninvoice() async {
+    if (_actionLoading) {
+      return;
+    }
+
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: const Text('Desfaturar'),
+        content: const Padding(
+          padding: EdgeInsets.only(top: 10),
+          child: Text('Esta ação remove o documento. Queres continuar?'),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Desfaturar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    setState(() => _actionLoading = true);
+    try {
+      await widget.controller.client.post(
+        '/invoices/${widget.invoiceId}/uninvoice',
+      );
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Documento removido',
+        message: 'A fatura foi removida com sucesso.',
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    } finally {
+      if (mounted) {
+        setState(() => _actionLoading = false);
+      }
+    }
+  }
+
+  void _toggleInvoiceItem(Map<String, dynamic> item) {
+    final id = item['id'] as int?;
+    if (id == null) {
+      return;
+    }
+
+    setState(() {
+      if (_expandedInvoiceItemIds.contains(id)) {
+        _expandedInvoiceItemIds.remove(id);
+      } else {
+        _expandedInvoiceItemIds.add(id);
+      }
+    });
+  }
+
+  String _detailValue(dynamic value, {String fallback = '—'}) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? fallback : text;
+  }
+
+  String _invoiceItemPackSummary(Map<String, dynamic> item) {
+    final packItem = (item['source_transaction']?['pack_item'] as Map?)
+        ?.cast<String, dynamic>();
+    if (packItem == null) {
+      return '—';
+    }
+
+    final parts = <String>[
+      if (packItem['hours'] != null) '${packItem['hours']}h',
+      if (packItem['pack_price'] != null) money(packItem['pack_price']),
+      if (packItem['validity_months'] != null)
+        '${packItem['validity_months']} meses',
+    ];
+
+    return parts.isEmpty ? '—' : parts.join(' · ');
+  }
+
+  String _invoiceItemSourceLabel(Map<String, dynamic> item) {
+    switch (item['source_type']?.toString()) {
+      case 'transaction':
+        return 'Transação de carteira';
+      case 'project':
+        return 'Projeto';
+      default:
+        return 'Linha manual';
+    }
+  }
+
+  Widget _invoiceItemDetailRow(String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: const Color(0xFF0C3E42).withValues(alpha: 0.7),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 13, color: Color(0xFF1A5A5D)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final invoice = _invoice;
     final title = invoice?['number']?.toString() ?? 'Documento';
     final items = (invoice?['items'] as List?)?.cast<dynamic>() ?? const [];
+    final isPaid = invoice?['status']?.toString() == 'pago';
 
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
@@ -5048,31 +5375,161 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                                   builder: (context) {
                                     final item = (rawItem as Map)
                                         .cast<String, dynamic>();
+                                    final itemId = item['id'] as int?;
+                                    final isExpanded =
+                                        itemId != null &&
+                                        _expandedInvoiceItemIds.contains(
+                                          itemId,
+                                        );
+                                    final sourceTransaction =
+                                        (item['source_transaction'] as Map?)
+                                            ?.cast<String, dynamic>();
+                                    final intervention =
+                                        (sourceTransaction?['intervention']
+                                                as Map?)
+                                            ?.cast<String, dynamic>();
+                                    final sourceProject =
+                                        (item['source_project'] as Map?)
+                                            ?.cast<String, dynamic>();
                                     return Container(
                                       width: double.infinity,
                                       margin: const EdgeInsets.only(bottom: 10),
-                                      padding: const EdgeInsets.all(12),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFF4F7F8),
+                                      child: CupertinoButton(
+                                        padding: const EdgeInsets.all(12),
                                         borderRadius: BorderRadius.circular(14),
-                                      ),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            item['description']?.toString() ??
-                                                'Linha',
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w700,
-                                              color: Color(0xFF0C3E42),
+                                        color: const Color(0xFFF4F7F8),
+                                        onPressed: () =>
+                                            _toggleInvoiceItem(item),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment:
+                                                        CrossAxisAlignment
+                                                            .start,
+                                                    children: [
+                                                      Text(
+                                                        item['description']
+                                                                ?.toString() ??
+                                                            'Linha',
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color: Color(
+                                                            0xFF0C3E42,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                      const SizedBox(height: 6),
+                                                      Text(
+                                                        'Qtd: ${item['quantity'] ?? '—'} · Unitário: ${money(item['unit_price'])} · Total: ${money(item['total'])}',
+                                                        style: const TextStyle(
+                                                          color: Color(
+                                                            0xFF1A5A5D,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 10),
+                                                Icon(
+                                                  isExpanded
+                                                      ? CupertinoIcons
+                                                            .chevron_up
+                                                      : CupertinoIcons
+                                                            .chevron_down,
+                                                  size: 18,
+                                                  color: const Color(
+                                                    0xFF0E4D50,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
-                                          ),
-                                          const SizedBox(height: 6),
-                                          Text(
-                                            'Qtd: ${item['quantity'] ?? '—'} · Unitário: ${money(item['unit_price'])} · Total: ${money(item['total'])}',
-                                          ),
-                                        ],
+                                            if (isExpanded) ...[
+                                              const SizedBox(height: 10),
+                                              _invoiceItemDetailRow(
+                                                'Origem',
+                                                _invoiceItemSourceLabel(item),
+                                              ),
+                                              if (item['source_id'] != null)
+                                                _invoiceItemDetailRow(
+                                                  'Ref.',
+                                                  '#${item['source_id']}',
+                                                ),
+                                              if (sourceProject != null)
+                                                _invoiceItemDetailRow(
+                                                  'Projeto',
+                                                  '${_detailValue(sourceProject['name'])} · ${_detailValue(sourceProject['status'])}',
+                                                ),
+                                              if (sourceTransaction?['product'] !=
+                                                  null)
+                                                _invoiceItemDetailRow(
+                                                  'Produto',
+                                                  _detailValue(
+                                                    sourceTransaction?['product']?['name'],
+                                                  ),
+                                                ),
+                                              if (sourceTransaction?['pack_item'] !=
+                                                  null)
+                                                _invoiceItemDetailRow(
+                                                  'Pack',
+                                                  _invoiceItemPackSummary(item),
+                                                ),
+                                              if (sourceTransaction?['description'] !=
+                                                      null &&
+                                                  sourceTransaction!['description']
+                                                          .toString() !=
+                                                      item['description']
+                                                          ?.toString())
+                                                _invoiceItemDetailRow(
+                                                  'Movimento',
+                                                  _detailValue(
+                                                    sourceTransaction['description'],
+                                                  ),
+                                                ),
+                                              if (intervention != null) ...[
+                                                _invoiceItemDetailRow(
+                                                  'Intervenção',
+                                                  _detailValue(
+                                                    intervention['type'],
+                                                  ),
+                                                ),
+                                                _invoiceItemDetailRow(
+                                                  'Tempo',
+                                                  signedHours(
+                                                    intervention['total_seconds'],
+                                                  ),
+                                                ),
+                                                _invoiceItemDetailRow(
+                                                  'Valor/h',
+                                                  intervention['hourly_rate'] !=
+                                                          null
+                                                      ? '${money(intervention['hourly_rate'])}/h'
+                                                      : '—',
+                                                ),
+                                                _invoiceItemDetailRow(
+                                                  'Obs. início',
+                                                  _detailValue(
+                                                    intervention['notes'],
+                                                  ),
+                                                ),
+                                                _invoiceItemDetailRow(
+                                                  'Obs. fim',
+                                                  _detailValue(
+                                                    intervention['finish_notes'],
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ],
+                                        ),
                                       ),
                                     );
                                   },
@@ -5082,7 +5539,9 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                         ),
                       CardSection(
                         title: 'Ações',
-                        child: Row(
+                        child: Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
                           children: [
                             _DocActionButton(
                               icon: CupertinoIcons.doc_text,
@@ -5093,7 +5552,6 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                                 '/documents/invoices/${widget.invoiceId}/pdf',
                               ),
                             ),
-                            const SizedBox(width: 8),
                             _DocActionButton(
                               icon: CupertinoIcons.printer,
                               label: 'Imprimir',
@@ -5103,6 +5561,28 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                                 '/documents/invoices/${widget.invoiceId}/pdf',
                               ),
                             ),
+                            if (_canManageInvoice && !isPaid)
+                              _DocActionButton(
+                                icon: CupertinoIcons.check_mark_circled,
+                                label: _actionLoading ? 'A gravar...' : 'Pago',
+                                onPressed: _markPaid,
+                              ),
+                            if (_canManageInvoice && isPaid)
+                              _DocActionButton(
+                                icon: CupertinoIcons.arrow_uturn_left_circle,
+                                label: _actionLoading
+                                    ? 'A gravar...'
+                                    : 'Pendente',
+                                onPressed: _markPending,
+                              ),
+                            if (_canManageInvoice && !isPaid)
+                              _DocActionButton(
+                                icon: CupertinoIcons.delete,
+                                label: _actionLoading
+                                    ? 'A gravar...'
+                                    : 'Desfaturar',
+                                onPressed: _uninvoice,
+                              ),
                           ],
                         ),
                       ),

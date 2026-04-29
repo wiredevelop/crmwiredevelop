@@ -26,4 +26,14 @@ class InvoiceItem extends Model
     {
         return $this->belongsTo(Invoice::class);
     }
+
+    public function sourceTransaction()
+    {
+        return $this->belongsTo(WalletTransaction::class, 'source_id');
+    }
+
+    public function sourceProject()
+    {
+        return $this->belongsTo(Project::class, 'source_id');
+    }
 }
