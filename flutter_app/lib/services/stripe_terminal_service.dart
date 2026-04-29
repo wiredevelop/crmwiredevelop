@@ -193,6 +193,12 @@ class StripeTerminalService extends ChangeNotifier {
       _appendLog(
         'Terminal ligado: ${connected.label ?? connected.deviceType?.name ?? 'Tap to Pay'}.',
       );
+    } on StateError catch (_) {
+      _appendLog('discoverReaders terminou sem devolver leitores.');
+      throw Exception(
+        'A pesquisa de Tap to Pay terminou sem resposta do SDK. '
+        'Instala a nova build e tenta novamente.',
+      );
     } catch (error) {
       _captureError(error, context: 'connectLocalReader');
       _statusMessage = _errorLabel(error);

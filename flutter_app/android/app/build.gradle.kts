@@ -17,10 +17,24 @@ val hasCodemagicSigning =
 
 configurations.configureEach {
     exclude(module = "bcprov-jdk15to18")
+    resolutionStrategy {
+        // Stripe Terminal Android 4.6.x still expects OkHttp 4 internals.
+        // flutter_stripe/stripe_android pulls OkHttp 5.x, which crashes Tap to Pay
+        // with NoClassDefFoundError for okhttp3.internal.Util at runtime.
+        force(
+            "com.squareup.okhttp3:okhttp:4.12.0",
+            "com.squareup.okhttp3:okhttp-jvm:4.12.0",
+            "com.squareup.okhttp3:okhttp-tls:4.12.0",
+            "com.squareup.okio:okio:3.6.0",
+            "com.squareup.okio:okio-jvm:3.6.0",
+        )
+    }
 }
 
 dependencies {
     implementation("org.slf4j:slf4j-nop:1.7.36")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
 }
 
 android {
