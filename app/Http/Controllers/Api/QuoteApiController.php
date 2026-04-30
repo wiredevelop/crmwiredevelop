@@ -40,11 +40,23 @@ class QuoteApiController extends Controller
             ->whereNotIn('projects.status', ['concluido', 'cancelado']);
 
         $pipelineBaseTotal = (float) (clone $baseQuery)->selectRaw('SUM(COALESCE(quotes.price_development, 0)) as total')->value('total');
+        $adjudicationsTotalAllTime = (float) (clone $baseQuery)
+            ->whereNotNull('quotes.adjudication_percent')
+            ->where('quotes.adjudication_percent', '>', 0)
+            ->selectRaw('SUM(COALESCE(quotes.price_development, 0) * (quotes.adjudication_percent / 100)) as total')
+            ->value('total');
         $adjudicationsTotal = (float) (clone $baseQuery)
             ->whereNotNull('quotes.adjudication_percent')
             ->where('quotes.adjudication_percent', '>', 0)
             ->whereYear('quotes.adjudication_paid_at', $year)
             ->selectRaw('SUM(COALESCE(quotes.price_development, 0) * (quotes.adjudication_percent / 100)) as total')
+            ->value('total');
+        $installmentsTotalAllTime = (float) Installment::query()
+            ->join('projects', 'projects.id', '=', 'installments.project_id')
+            ->leftJoin('invoices', 'invoices.project_id', '=', 'projects.id')
+            ->whereNotIn('projects.status', ['concluido', 'cancelado'])
+            ->where(fn ($query) => $query->whereNull('invoices.id')->orWhere('invoices.status', '!=', 'pago'))
+            ->selectRaw('SUM(COALESCE(installments.amount, 0)) as total')
             ->value('total');
         $installmentsTotal = (float) Installment::query()
             ->join('projects', 'projects.id', '=', 'installments.project_id')
@@ -58,7 +70,6 @@ class QuoteApiController extends Controller
         $installmentsByProject = Installment::query()
             ->join('projects', 'projects.id', '=', 'installments.project_id')
             ->whereNotIn('projects.status', ['concluido', 'cancelado'])
-            ->whereYear('installments.paid_at', $year)
             ->selectRaw('installments.project_id, SUM(COALESCE(installments.amount, 0)) as total')
             ->groupBy('installments.project_id')
             ->pluck('total', 'installments.project_id');
@@ -68,7 +79,7 @@ class QuoteApiController extends Controller
             'adjudications_total' => $adjudicationsTotal,
             'installments_total' => $installmentsTotal,
             'installments_by_project' => $installmentsByProject,
-            'pipeline_total' => max(0, $pipelineBaseTotal - $adjudicationsTotal - $installmentsTotal),
+            'pipeline_total' => max(0, $pipelineBaseTotal - $adjudicationsTotalAllTime - $installmentsTotalAllTime),
             'selected_year' => $year,
             'available_years' => $this->availableYears(),
         ]);

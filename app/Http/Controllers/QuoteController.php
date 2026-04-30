@@ -41,11 +41,28 @@ class QuoteController extends Controller
             ->selectRaw('SUM(COALESCE(quotes.price_development, 0)) as total')
             ->value('total');
 
+        $adjudicationsTotalAllTime = (float) (clone $baseQuery)
+            ->whereNotNull('quotes.adjudication_percent')
+            ->where('quotes.adjudication_percent', '>', 0)
+            ->selectRaw('SUM(COALESCE(quotes.price_development, 0) * (quotes.adjudication_percent / 100)) as total')
+            ->value('total');
+
         $adjudicationsTotal = (float) (clone $baseQuery)
             ->whereNotNull('quotes.adjudication_percent')
             ->where('quotes.adjudication_percent', '>', 0)
             ->whereYear('quotes.adjudication_paid_at', $year)
             ->selectRaw('SUM(COALESCE(quotes.price_development, 0) * (quotes.adjudication_percent / 100)) as total')
+            ->value('total');
+
+        $installmentsTotalAllTime = (float) Installment::query()
+            ->join('projects', 'projects.id', '=', 'installments.project_id')
+            ->leftJoin('invoices', 'invoices.project_id', '=', 'projects.id')
+            ->whereNotIn('projects.status', ['concluido', 'cancelado'])
+            ->where(function ($query) {
+                $query->whereNull('invoices.id')
+                    ->orWhere('invoices.status', '!=', 'pago');
+            })
+            ->selectRaw('SUM(COALESCE(installments.amount, 0)) as total')
             ->value('total');
 
         $installmentsTotal = (float) Installment::query()
@@ -63,7 +80,6 @@ class QuoteController extends Controller
         $installmentsByProject = Installment::query()
             ->join('projects', 'projects.id', '=', 'installments.project_id')
             ->whereNotIn('projects.status', ['concluido', 'cancelado'])
-            ->whereYear('installments.paid_at', $year)
             ->selectRaw('installments.project_id, SUM(COALESCE(installments.amount, 0)) as total')
             ->groupBy('installments.project_id')
             ->pluck('total', 'installments.project_id');
@@ -74,7 +90,7 @@ class QuoteController extends Controller
             'adjudicationsTotal' => $adjudicationsTotal,
             'installmentsTotal' => $installmentsTotal,
             'installmentsByProject' => $installmentsByProject,
-            'pipelineTotal' => max(0, $pipelineBaseTotal - $adjudicationsTotal - $installmentsTotal),
+            'pipelineTotal' => max(0, $pipelineBaseTotal - $adjudicationsTotalAllTime - $installmentsTotalAllTime),
             'selectedYear' => $year,
             'availableYears' => $this->availableYears(),
         ]);
