@@ -756,7 +756,11 @@ class _HomeShellState extends State<HomeShell> {
         _openMoreModule('wallet');
         return;
       case 'wallets':
-        _openMoreModule('wallets', clientId: request.clientId);
+        if (widget.controller.isClientUser) {
+          _openMoreModule('wallet');
+        } else {
+          _openMoreModule('wallets', clientId: request.clientId);
+        }
         return;
       case 'invoices':
         _openMoreModule('documents', invoiceStatus: request.status);

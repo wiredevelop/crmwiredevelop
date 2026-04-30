@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Api\Concerns\RespondsWithJson;
 use App\Http\Controllers\Controller;
 use App\Models\Setting;
+use App\Support\ActivityNotificationService;
 use App\Support\CompanySettings;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -43,6 +44,12 @@ class CompanyApiController extends Controller
         ]);
 
         Setting::updateOrCreate(['key' => 'company_data'], ['value' => json_encode($data)]);
+
+        app(ActivityNotificationService::class)->notifyAdminConfigurationChanged(
+            'Empresa atualizada',
+            'Os dados da empresa foram atualizados.',
+            'company',
+        );
 
         return $this->success([
             'company' => CompanySettings::get(),

@@ -34,11 +34,25 @@ workflows:
       - name: Build Android APK
         script: |
           cd "$PROJECT_DIR"
-          flutter build apk --release
+          DART_DEFINES=()
+          for key in FIREBASE_PROJECT_ID FIREBASE_MESSAGING_SENDER_ID FIREBASE_STORAGE_BUCKET FIREBASE_ANDROID_APP_ID FIREBASE_ANDROID_API_KEY FIREBASE_IOS_APP_ID FIREBASE_IOS_API_KEY FIREBASE_IOS_BUNDLE_ID FIREBASE_IOS_CLIENT_ID; do
+            value="${!key}"
+            if [ -n "$value" ]; then
+              DART_DEFINES+=(--dart-define="$key=$value")
+            fi
+          done
+          flutter build apk --release "${DART_DEFINES[@]}"
       - name: Build Android App Bundle
         script: |
           cd "$PROJECT_DIR"
-          flutter build appbundle --release
+          DART_DEFINES=()
+          for key in FIREBASE_PROJECT_ID FIREBASE_MESSAGING_SENDER_ID FIREBASE_STORAGE_BUCKET FIREBASE_ANDROID_APP_ID FIREBASE_ANDROID_API_KEY FIREBASE_IOS_APP_ID FIREBASE_IOS_API_KEY FIREBASE_IOS_BUNDLE_ID FIREBASE_IOS_CLIENT_ID; do
+            value="${!key}"
+            if [ -n "$value" ]; then
+              DART_DEFINES+=(--dart-define="$key=$value")
+            fi
+          done
+          flutter build appbundle --release "${DART_DEFINES[@]}"
     artifacts:
       - flutter_app/build/**/outputs/**/*.apk
       - flutter_app/build/**/outputs/**/*.aab
@@ -89,10 +103,18 @@ workflows:
       - name: Build signed iOS IPA
         script: |
           cd "$PROJECT_DIR"
+          DART_DEFINES=()
+          for key in FIREBASE_PROJECT_ID FIREBASE_MESSAGING_SENDER_ID FIREBASE_STORAGE_BUCKET FIREBASE_ANDROID_APP_ID FIREBASE_ANDROID_API_KEY FIREBASE_IOS_APP_ID FIREBASE_IOS_API_KEY FIREBASE_IOS_BUNDLE_ID FIREBASE_IOS_CLIENT_ID; do
+            value="${!key}"
+            if [ -n "$value" ]; then
+              DART_DEFINES+=(--dart-define="$key=$value")
+            fi
+          done
           flutter build ipa \
             --release \
             --build-number="$BUILD_NUMBER" \
-            --export-options-plist=/Users/builder/export_options.plist
+            --export-options-plist=/Users/builder/export_options.plist \
+            "${DART_DEFINES[@]}"
     artifacts:
       - flutter_app/build/ios/ipa/*.ipa
       - flutter_app/build/ios/archive/*.xcarchive

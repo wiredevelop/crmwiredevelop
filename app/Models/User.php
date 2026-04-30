@@ -44,6 +44,11 @@ class User extends Authenticatable implements WebAuthnAuthenticatable
         return $this->belongsTo(Client::class);
     }
 
+    public function deviceTokens()
+    {
+        return $this->hasMany(DeviceToken::class);
+    }
+
     public function isAdminUser(): bool
     {
         return $this->role === self::ROLE_ADMIN;

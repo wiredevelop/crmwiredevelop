@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Api\Concerns\RespondsWithJson;
 use App\Http\Controllers\Controller;
 use App\Models\Setting;
+use App\Support\ActivityNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Symfony\Component\Process\Process;
@@ -42,6 +43,12 @@ class SettingsApiController extends Controller
         Setting::updateOrCreate(['key' => 'terminal_surcharge_percent'], ['value' => (string) $terminalSurchargePercent]);
         Setting::updateOrCreate(['key' => 'terminal_surcharge_fixed'], ['value' => (string) $terminalSurchargeFixed]);
 
+        app(ActivityNotificationService::class)->notifyAdminConfigurationChanged(
+            'Definições atualizadas',
+            'As definições comerciais e do terminal foram atualizadas.',
+            'settings',
+        );
+
         return $this->success([
             'sales_goal' => $value !== null ? (float) $value : null,
             'terminal_surcharge_percent' => (float) $terminalSurchargePercent,
@@ -59,6 +66,12 @@ class SettingsApiController extends Controller
         if (! $result['ok']) {
             return $this->error($result['output'] ? "Falha ao atualizar IDE: {$result['output']}" : 'Falha ao atualizar IDE.', [], 500);
         }
+
+        app(ActivityNotificationService::class)->notifyAdminConfigurationChanged(
+            'Estado da IDE alterado',
+            $action === 'start' ? 'A IDE foi ativada.' : 'A IDE foi desativada.',
+            'settings',
+        );
 
         return $this->success([
             'ide_status' => $this->ideStatus(),

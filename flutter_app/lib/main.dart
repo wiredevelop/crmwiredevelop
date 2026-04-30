@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:home_widget/home_widget.dart';
 
 import 'app_controller.dart';
+import 'services/notification_service.dart';
 import 'screens.dart';
 import 'services/widget_sync_service.dart';
 import 'widgets/ui.dart';
@@ -12,6 +13,7 @@ import 'widgets/ui.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await WidgetSyncService.configure();
+  await NotificationService.instance.initialize();
 
   final controller = AppController();
   await controller.initialize();
@@ -33,6 +35,7 @@ class _WireCrmAppState extends State<WireCrmApp> {
   late final AppLinks _appLinks;
   StreamSubscription<Uri>? _linkSubscription;
   StreamSubscription<Uri?>? _widgetClickSubscription;
+  StreamSubscription<Uri>? _notificationLaunchSubscription;
   int _lastHandledWalletReturnVersion = 0;
 
   @override
@@ -42,12 +45,14 @@ class _WireCrmAppState extends State<WireCrmApp> {
     widget.controller.addListener(_handleControllerChange);
     _setupDeepLinks();
     _setupWidgetLaunches();
+    _setupNotificationLaunches();
   }
 
   @override
   void dispose() {
     _linkSubscription?.cancel();
     _widgetClickSubscription?.cancel();
+    _notificationLaunchSubscription?.cancel();
     widget.controller.removeListener(_handleControllerChange);
     super.dispose();
   }
@@ -78,6 +83,18 @@ class _WireCrmAppState extends State<WireCrmApp> {
         widget.controller.handleIncomingUri(uri);
       }
     }, onError: (_) {});
+  }
+
+  void _setupNotificationLaunches() {
+    final initialUri = NotificationService.instance.consumeInitialUri();
+    if (initialUri != null) {
+      widget.controller.handleIncomingUri(initialUri);
+    }
+
+    _notificationLaunchSubscription = NotificationService.instance.launchStream
+        .listen((uri) {
+          widget.controller.handleIncomingUri(uri);
+        }, onError: (_) {});
   }
 
   void _handleControllerChange() {

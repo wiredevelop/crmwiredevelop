@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 
 import 'services/api_client.dart';
+import 'services/notification_service.dart';
 import 'services/widget_sync_service.dart';
 
 class WalletCheckoutReturn {
@@ -98,6 +99,10 @@ class AppController extends ChangeNotifier {
   ApiClient get client => ApiClient(baseUrl: _baseUrl, token: _token);
 
   Future<void> initialize() async {
+    NotificationService.instance.bindTokenRefreshSync(() async {
+      await syncNotificationRegistration();
+    });
+
     try {
       final storedBaseUrl = await _storage.read(key: _baseUrlKey);
 
@@ -137,8 +142,11 @@ class AppController extends ChangeNotifier {
     _isReady = true;
     notifyListeners();
 
-    if (isAuthenticated && !mustChangePassword) {
-      unawaited(refreshWidgetData());
+    if (isAuthenticated) {
+      unawaited(syncNotificationRegistration());
+      if (!mustChangePassword) {
+        unawaited(refreshWidgetData());
+      }
     }
   }
 
@@ -209,6 +217,7 @@ class AppController extends ChangeNotifier {
     await _storage.write(key: _tokenKey, value: _token);
     await _persistUser();
     await _syncBiometricAssociation();
+    await syncNotificationRegistration();
     await refreshWidgetData();
 
     notifyListeners();
@@ -224,6 +233,7 @@ class AppController extends ChangeNotifier {
     await _storage.write(key: _apiPasswordKey, value: _apiPassword);
     await _persistUser();
     await _syncBiometricAssociation();
+    await syncNotificationRegistration();
     await refreshWidgetData();
     notifyListeners();
   }
@@ -323,6 +333,10 @@ class AppController extends ChangeNotifier {
 
   Future<void> logout() async {
     try {
+      await NotificationService.instance.unregisterDevice(client);
+    } catch (_) {}
+
+    try {
       await client.post('/auth/logout');
     } catch (_) {}
 
@@ -339,6 +353,16 @@ class AppController extends ChangeNotifier {
     }
 
     await WidgetSyncService.sync(client);
+  }
+
+  Future<void> syncNotificationRegistration() async {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    try {
+      await NotificationService.instance.syncDeviceRegistration(client);
+    } catch (_) {}
   }
 
   Future<void> _resetLocalSession({bool preserveQuickLogin = false}) async {

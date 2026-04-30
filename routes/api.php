@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\DashboardApiController;
 use App\Http\Controllers\Api\FinanceApiController;
 use App\Http\Controllers\Api\InterventionApiController;
 use App\Http\Controllers\Api\InvoiceApiController;
+use App\Http\Controllers\Api\NotificationDeviceApiController;
 use App\Http\Controllers\Api\ObjectPortalApiController;
 use App\Http\Controllers\Api\ProductApiController;
 use App\Http\Controllers\Api\ProjectApiController;
@@ -38,6 +39,8 @@ Route::prefix('v1')->as('api.')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
+        Route::post('/notifications/devices', [NotificationDeviceApiController::class, 'store']);
+        Route::delete('/notifications/devices', [NotificationDeviceApiController::class, 'destroy']);
     });
 
     Route::middleware(['auth:sanctum', 'force.password.change'])->group(function () {
