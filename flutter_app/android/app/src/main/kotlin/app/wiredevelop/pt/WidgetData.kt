@@ -105,7 +105,7 @@ object WireWidgetData {
         val absolute = kotlin.math.abs(seconds)
         val hours = absolute / 3600
         val minutes = (absolute % 3600) / 60
-        return "$sign${hours}h ${minutes.toString().padLeft(2, '0')}m"
+        return "$sign${hours}h ${minutes.toString().padStart(2, '0')}m"
     }
 
     fun formatCurrency(amount: Double): String {
