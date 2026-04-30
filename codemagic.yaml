@@ -43,6 +43,10 @@ workflows:
         script: |
           cd "$PROJECT_DIR"
           flutter pub get
+      - name: Print build commit
+        script: |
+          cd "$PROJECT_DIR"
+          echo "Repository HEAD: $(git -C .. rev-parse HEAD)"
       - name: Static analysis
         script: |
           cd "$PROJECT_DIR"
@@ -135,7 +139,8 @@ workflows:
       - name: Install CocoaPods dependencies
         script: |
           cd "$PROJECT_DIR/ios"
-          pod install
+          rm -rf Pods Podfile.lock .symlinks
+          pod install --verbose 2>&1 | tee /tmp/pod_install.log
       - name: Apply iOS provisioning profiles
         script: |
           cd "$PROJECT_DIR/ios"
@@ -159,6 +164,7 @@ workflows:
       - flutter_app/build/ios/ipa/*.ipa
       - flutter_app/build/ios/archive/*.xcarchive
       - /tmp/xcodebuild_logs/*.log
+      - /tmp/pod_install.log
       - flutter_app/build/**/outputs/**/*.dSYM.zip
     publishing:
       app_store_connect:
