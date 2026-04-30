@@ -3375,14 +3375,29 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                       CardSection(
                         title: 'Comunicação',
                         trailing: widget.controller.isClientUser
-                            ? CupertinoButton(
-                                padding: EdgeInsets.zero,
-                                onPressed: _sending
-                                    ? null
-                                    : () => _sendImageMessage(
-                                        type: 'proof_submission',
-                                      ),
-                                child: const Text('Submeter prova'),
+                            ? Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CupertinoButton(
+                                    padding: EdgeInsets.zero,
+                                    onPressed: _sending
+                                        ? null
+                                        : () => _sendMessage(
+                                            type: 'proof_request',
+                                          ),
+                                    child: const Text('Pedir prova'),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  CupertinoButton(
+                                    padding: EdgeInsets.zero,
+                                    onPressed: _sending
+                                        ? null
+                                        : () => _sendImageMessage(
+                                            type: 'proof_submission',
+                                          ),
+                                    child: const Text('Enviar prova'),
+                                  ),
+                                ],
                               )
                             : CupertinoButton(
                                 padding: EdgeInsets.zero,

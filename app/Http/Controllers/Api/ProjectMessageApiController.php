@@ -47,7 +47,9 @@ class ProjectMessageApiController extends Controller
         if ($body === '') {
             $body = match ($data['type'] ?? 'message') {
                 'proof_submission' => 'Prova submetida.',
-                'proof_request' => 'Pedido de prova: por favor partilha atualização, captura de ecrã ou vídeo deste ponto do projeto.',
+                'proof_request' => $this->isClientUser()
+                    ? 'Preciso de prova feedback.'
+                    : 'Pedido de prova: por favor partilha atualização, captura de ecrã ou vídeo deste ponto do projeto.',
                 default => 'Imagem enviada.',
             };
         }
