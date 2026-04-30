@@ -6541,7 +6541,7 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
   Future<void> _finishIntervention(Map<String, dynamic> item) async {
     final notes = TextEditingController();
     final endedAt = TextEditingController();
-    final durationMinutes = TextEditingController();
+    final durationInput = TextEditingController();
 
     final confirmed = await showCupertinoDialog<bool>(
       context: context,
@@ -6562,9 +6562,8 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
             ),
             const SizedBox(height: 8),
             CupertinoTextField(
-              controller: durationMinutes,
-              placeholder: 'Duração em minutos',
-              keyboardType: TextInputType.number,
+              controller: durationInput,
+              placeholder: 'Duração hh:mm:ss',
             ),
           ],
         ),
@@ -6583,15 +6582,37 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
 
     if (confirmed != true) return;
 
+    final endedAtValue = endedAt.text.trim();
+    final durationValue = durationInput.text.trim();
+
+    if (endedAtValue.isNotEmpty && durationValue.isNotEmpty) {
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Duração inválida',
+        message: 'Indica apenas a hora de fim ou a duração em hh:mm:ss.',
+      );
+      return;
+    }
+
+    if (durationValue.isNotEmpty &&
+        !RegExp(r'^\d{1,3}:\d{2}:\d{2}$').hasMatch(durationValue)) {
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Formato inválido',
+        message: 'A duração deve estar no formato hh:mm:ss.',
+      );
+      return;
+    }
+
     try {
       await widget.controller.client.post(
         '/interventions/${item['id']}/finish',
         body: {
           'finish_notes': notes.text.trim().isEmpty ? null : notes.text.trim(),
-          'ended_at': endedAt.text.trim().isEmpty ? null : endedAt.text.trim(),
-          'duration_minutes': durationMinutes.text.trim().isEmpty
-              ? null
-              : int.tryParse(durationMinutes.text.trim()),
+          'ended_at': endedAtValue.isEmpty ? null : endedAtValue,
+          'duration_input': durationValue.isEmpty ? null : durationValue,
         },
       );
       await _load();
