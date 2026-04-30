@@ -26,6 +26,8 @@
 /public/storage
 /storage/*.key
 /storage/pail
+/flutter_app/android/app/google-services.json
+/flutter_app/ios/Runner/GoogleService-Info.plist
 /vendor
 Homestead.json
 Homestead.yaml

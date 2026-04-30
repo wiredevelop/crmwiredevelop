@@ -11,13 +11,17 @@ import 'api_client.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  final options = WireFirebaseOptions.currentPlatform;
-  if (options == null) {
-    return;
-  }
-
   if (Firebase.apps.isEmpty) {
-    await Firebase.initializeApp(options: options);
+    try {
+      final options = WireFirebaseOptions.currentPlatform;
+      if (options != null) {
+        await Firebase.initializeApp(options: options);
+      } else {
+        await Firebase.initializeApp();
+      }
+    } catch (_) {
+      return;
+    }
   }
 }
 
@@ -33,16 +37,21 @@ class NotificationService {
   Future<void> Function()? _tokenRefreshSync;
   Uri? _initialUri;
   bool _initialized = false;
+  bool _available = false;
 
   Stream<Uri> get launchStream => _launchStream.stream;
-  bool get isConfigured => WireFirebaseOptions.currentPlatform != null;
+  bool get isConfigured => _available || WireFirebaseOptions.currentPlatform != null;
 
   Future<void> initialize() async {
-    if (_initialized || !isConfigured) {
+    if (_initialized) {
       return;
     }
 
-    await Firebase.initializeApp(options: WireFirebaseOptions.currentPlatform);
+    final firebaseReady = await _initializeFirebaseCore();
+    if (!firebaseReady) {
+      return;
+    }
+
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
     await FirebaseMessaging.instance.setAutoInitEnabled(true);
     await FirebaseMessaging.instance
@@ -64,6 +73,7 @@ class NotificationService {
       }
     });
 
+    _available = true;
     _initialized = true;
   }
 
@@ -78,7 +88,11 @@ class NotificationService {
   }
 
   Future<void> syncDeviceRegistration(ApiClient client) async {
-    if (!isConfigured) {
+    if (!_initialized) {
+      await initialize();
+    }
+
+    if (!_available) {
       return;
     }
 
@@ -116,7 +130,11 @@ class NotificationService {
   }
 
   Future<void> unregisterDevice(ApiClient client) async {
-    if (!isConfigured) {
+    if (!_initialized) {
+      await initialize();
+    }
+
+    if (!_available) {
       return;
     }
 
@@ -228,5 +246,23 @@ class NotificationService {
     }
 
     return Uri.tryParse(payload.trim());
+  }
+
+  Future<bool> _initializeFirebaseCore() async {
+    if (Firebase.apps.isNotEmpty) {
+      return true;
+    }
+
+    try {
+      final options = WireFirebaseOptions.currentPlatform;
+      if (options != null) {
+        await Firebase.initializeApp(options: options);
+      } else {
+        await Firebase.initializeApp();
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 }

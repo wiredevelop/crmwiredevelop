@@ -5,6 +5,10 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 val cmKeystorePath = System.getenv("CM_KEYSTORE_PATH")
 val cmKeystorePassword = System.getenv("CM_KEYSTORE_PASSWORD")
 val cmKeyAlias = System.getenv("CM_KEY_ALIAS")
