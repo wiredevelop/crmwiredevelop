@@ -1,4 +1,3 @@
-import AppIntents
 import SwiftUI
 import WidgetKit
 
@@ -70,105 +69,6 @@ struct WireWidgetPayload: Decodable {
   }
 }
 
-struct WalletEntity: AppEntity, Codable, Hashable {
-  static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Carteira")
-  static var defaultQuery = WalletEntityQuery()
-
-  let id: String
-  let title: String
-
-  var displayRepresentation: DisplayRepresentation {
-    DisplayRepresentation(title: "\(title)")
-  }
-}
-
-struct WalletEntityQuery: EntityQuery {
-  func entities(for identifiers: [WalletEntity.ID]) async throws -> [WalletEntity] {
-    let entities = try await suggestedEntities()
-    return entities.filter { identifiers.contains($0.id) }
-  }
-
-  func suggestedEntities() async throws -> [WalletEntity] {
-    WireWidgetPayload.load()
-      .wallets?
-      .items
-      .map { WalletEntity(id: $0.id, title: $0.client_name) } ?? []
-  }
-
-  func defaultResult() async -> WalletEntity? {
-    let entities = try? await suggestedEntities()
-    return entities?.first
-  }
-}
-
-enum BillingOption: String, AppEnum {
-  case paid
-  case pending
-  case all
-
-  static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Indicador")
-
-  static var caseDisplayRepresentations: [BillingOption: DisplayRepresentation] = [
-    .paid: DisplayRepresentation(title: "Pago"),
-    .pending: DisplayRepresentation(title: "Pendente"),
-    .all: DisplayRepresentation(title: "Total"),
-  ]
-}
-
-struct ModuleEntity: AppEntity, Codable, Hashable {
-  static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Módulo")
-  static var defaultQuery = ModuleEntityQuery()
-
-  let id: String
-  let title: String
-
-  var displayRepresentation: DisplayRepresentation {
-    DisplayRepresentation(title: "\(title)")
-  }
-}
-
-struct ModuleEntityQuery: EntityQuery {
-  func entities(for identifiers: [ModuleEntity.ID]) async throws -> [ModuleEntity] {
-    let entities = try await suggestedEntities()
-    return entities.filter { identifiers.contains($0.id) }
-  }
-
-  func suggestedEntities() async throws -> [ModuleEntity] {
-    WireWidgetPayload.load()
-      .more_modules
-      .map { ModuleEntity(id: $0.id, title: $0.label) }
-  }
-
-  func defaultResult() async -> ModuleEntity? {
-    let entities = try? await suggestedEntities()
-    return entities?.first
-  }
-}
-
-struct WalletWidgetIntent: WidgetConfigurationIntent {
-  static var title: LocalizedStringResource = "Carteira"
-  static var description = IntentDescription("Escolhe a carteira a mostrar.")
-
-  @Parameter(title: "Carteira")
-  var wallet: WalletEntity?
-}
-
-struct BillingWidgetIntent: WidgetConfigurationIntent {
-  static var title: LocalizedStringResource = "Faturação"
-  static var description = IntentDescription("Escolhe o indicador de faturação.")
-
-  @Parameter(title: "Indicador", default: .all)
-  var option: BillingOption
-}
-
-struct ModuleWidgetIntent: WidgetConfigurationIntent {
-  static var title: LocalizedStringResource = "Módulo"
-  static var description = IntentDescription("Escolhe o módulo da aba Mais.")
-
-  @Parameter(title: "Módulo")
-  var module: ModuleEntity?
-}
-
 struct WalletEntry: TimelineEntry {
   let date: Date
   let wallet: WireWidgetPayload.WalletItem?
@@ -189,52 +89,42 @@ struct ModuleEntry: TimelineEntry {
   let module: WireWidgetPayload.ModuleItem?
 }
 
-struct WalletProvider: AppIntentTimelineProvider {
+struct WalletProvider: TimelineProvider {
   func placeholder(in context: Context) -> WalletEntry {
     WalletEntry(date: .now, wallet: nil)
   }
 
-  func snapshot(for configuration: WalletWidgetIntent, in context: Context) async -> WalletEntry {
-    WalletEntry(date: .now, wallet: wallet(for: configuration))
+  func getSnapshot(in context: Context, completion: @escaping (WalletEntry) -> Void) {
+    completion(WalletEntry(date: .now, wallet: defaultWallet()))
   }
 
-  func timeline(for configuration: WalletWidgetIntent, in context: Context) async -> Timeline<WalletEntry> {
-    Timeline(entries: [WalletEntry(date: .now, wallet: wallet(for: configuration))], policy: .never)
+  func getTimeline(in context: Context, completion: @escaping (Timeline<WalletEntry>) -> Void) {
+    let entry = WalletEntry(date: .now, wallet: defaultWallet())
+    completion(Timeline(entries: [entry], policy: .never))
   }
 
-  private func wallet(for configuration: WalletWidgetIntent) -> WireWidgetPayload.WalletItem? {
-    let items = WireWidgetPayload.load().wallets?.items ?? []
-    if let id = configuration.wallet?.id {
-      return items.first(where: { $0.id == id }) ?? items.first
-    }
-    return items.first
+  private func defaultWallet() -> WireWidgetPayload.WalletItem? {
+    WireWidgetPayload.load().wallets?.items.first
   }
 }
 
-struct BillingProvider: AppIntentTimelineProvider {
+struct BillingProvider: TimelineProvider {
   func placeholder(in context: Context) -> BillingEntry {
     BillingEntry(date: .now, item: nil)
   }
 
-  func snapshot(for configuration: BillingWidgetIntent, in context: Context) async -> BillingEntry {
-    BillingEntry(date: .now, item: billing(for: configuration.option))
+  func getSnapshot(in context: Context, completion: @escaping (BillingEntry) -> Void) {
+    completion(BillingEntry(date: .now, item: defaultBilling()))
   }
 
-  func timeline(for configuration: BillingWidgetIntent, in context: Context) async -> Timeline<BillingEntry> {
-    Timeline(entries: [BillingEntry(date: .now, item: billing(for: configuration.option))], policy: .never)
+  func getTimeline(in context: Context, completion: @escaping (Timeline<BillingEntry>) -> Void) {
+    let entry = BillingEntry(date: .now, item: defaultBilling())
+    completion(Timeline(entries: [entry], policy: .never))
   }
 
-  private func billing(for option: BillingOption) -> WireWidgetPayload.BillingItem? {
-    let id: String
-    switch option {
-    case .paid:
-      id = "paid"
-    case .pending:
-      id = "pending"
-    case .all:
-      id = "all"
-    }
-    return WireWidgetPayload.load().billing.first(where: { $0.id == id })
+  private func defaultBilling() -> WireWidgetPayload.BillingItem? {
+    let items = WireWidgetPayload.load().billing
+    return items.first(where: { $0.id == "all" }) ?? items.first
   }
 }
 
@@ -253,25 +143,22 @@ struct StatsProvider: TimelineProvider {
   }
 }
 
-struct ModuleProvider: AppIntentTimelineProvider {
+struct ModuleProvider: TimelineProvider {
   func placeholder(in context: Context) -> ModuleEntry {
     ModuleEntry(date: .now, module: nil)
   }
 
-  func snapshot(for configuration: ModuleWidgetIntent, in context: Context) async -> ModuleEntry {
-    ModuleEntry(date: .now, module: module(for: configuration))
+  func getSnapshot(in context: Context, completion: @escaping (ModuleEntry) -> Void) {
+    completion(ModuleEntry(date: .now, module: defaultModule()))
   }
 
-  func timeline(for configuration: ModuleWidgetIntent, in context: Context) async -> Timeline<ModuleEntry> {
-    Timeline(entries: [ModuleEntry(date: .now, module: module(for: configuration))], policy: .never)
+  func getTimeline(in context: Context, completion: @escaping (Timeline<ModuleEntry>) -> Void) {
+    let entry = ModuleEntry(date: .now, module: defaultModule())
+    completion(Timeline(entries: [entry], policy: .never))
   }
 
-  private func module(for configuration: ModuleWidgetIntent) -> WireWidgetPayload.ModuleItem? {
-    let items = WireWidgetPayload.load().more_modules
-    if let id = configuration.module?.id {
-      return items.first(where: { $0.id == id }) ?? items.first
-    }
-    return items.first
+  private func defaultModule() -> WireWidgetPayload.ModuleItem? {
+    WireWidgetPayload.load().more_modules.first
   }
 }
 
@@ -365,11 +252,7 @@ struct WireWalletWidget: Widget {
   let kind = "WireWalletWidget"
 
   var body: some WidgetConfiguration {
-    AppIntentConfiguration(
-      kind: kind,
-      intent: WalletWidgetIntent.self,
-      provider: WalletProvider()
-    ) { entry in
+    StaticConfiguration(kind: kind, provider: WalletProvider()) { entry in
       WalletWidgetView(entry: entry)
     }
     .configurationDisplayName("Carteira")
@@ -382,11 +265,7 @@ struct WireBillingWidget: Widget {
   let kind = "WireBillingWidget"
 
   var body: some WidgetConfiguration {
-    AppIntentConfiguration(
-      kind: kind,
-      intent: BillingWidgetIntent.self,
-      provider: BillingProvider()
-    ) { entry in
+    StaticConfiguration(kind: kind, provider: BillingProvider()) { entry in
       BillingWidgetView(entry: entry)
     }
     .configurationDisplayName("Faturação")
@@ -412,11 +291,7 @@ struct WireModuleWidget: Widget {
   let kind = "WireModuleWidget"
 
   var body: some WidgetConfiguration {
-    AppIntentConfiguration(
-      kind: kind,
-      intent: ModuleWidgetIntent.self,
-      provider: ModuleProvider()
-    ) { entry in
+    StaticConfiguration(kind: kind, provider: ModuleProvider()) { entry in
       ModuleWidgetView(entry: entry)
     }
     .configurationDisplayName("Módulo")
