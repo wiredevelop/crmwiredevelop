@@ -41,6 +41,8 @@
 	</array>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Use Face ID para autenticação rápida no Wire CRM.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>A câmara pode ser usada para funcionalidades de pagamento e captura associadas ao Wire CRM.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>O acesso à localização é necessário para aceitar pagamentos presenciais com Stripe Terminal.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
