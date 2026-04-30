@@ -170,7 +170,7 @@ struct WalletWidgetView: View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Carteira")
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundColor(.secondary)
       Text(wallet?.client_name ?? "Sem dados")
         .font(.headline)
       Text(formatHours(wallet?.balance_seconds ?? 0))
@@ -179,7 +179,7 @@ struct WalletWidgetView: View {
         .font(.subheadline.weight(.semibold))
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    .containerBackground(.background, for: .widget)
+    .wireWidgetBackground()
     .widgetURL(wallet.flatMap { URL(string: $0.deep_link) })
   }
 }
@@ -192,14 +192,14 @@ struct BillingWidgetView: View {
     VStack(alignment: .leading, spacing: 8) {
       Text(item?.label ?? "Faturação")
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundColor(.secondary)
       Text(formatCurrency(item?.amount ?? 0))
         .font(.title3.bold())
       Text("\(item?.count ?? 0) documentos")
         .font(.subheadline)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    .containerBackground(.background, for: .widget)
+    .wireWidgetBackground()
     .widgetURL(item.flatMap { URL(string: $0.deep_link) })
   }
 }
@@ -211,7 +211,7 @@ struct StatsWidgetView: View {
     VStack(alignment: .leading, spacing: 12) {
       Text("Indicadores")
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundColor(.secondary)
 
       ForEach(Array(entry.stats.prefix(2))) { item in
         HStack {
@@ -224,7 +224,7 @@ struct StatsWidgetView: View {
       }
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    .containerBackground(.background, for: .widget)
+    .wireWidgetBackground()
     .widgetURL(URL(string: entry.stats.first?.deep_link ?? "wirecrm://projects"))
   }
 }
@@ -236,14 +236,14 @@ struct ModuleWidgetView: View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Módulo")
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundColor(.secondary)
       Text(entry.module?.label ?? "Mais")
         .font(.title3.bold())
       Text("Abrir na app")
         .font(.subheadline)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-    .containerBackground(.background, for: .widget)
+    .wireWidgetBackground()
     .widgetURL(URL(string: entry.module?.deep_link ?? "wirecrm://more"))
   }
 }
@@ -323,4 +323,17 @@ private func formatHours(_ seconds: Int) -> String {
   let minutes = (absolute % 3600) / 60
   let prefix = seconds < 0 ? "-" : ""
   return "\(prefix)\(hours)h \(String(format: "%02d", minutes))m"
+}
+
+private extension View {
+  @ViewBuilder
+  func wireWidgetBackground() -> some View {
+    if #available(iOSApplicationExtension 17.0, *) {
+      self.containerBackground(.background, for: .widget)
+    } else {
+      self
+        .padding(12)
+        .background(Color(.systemBackground))
+    }
+  }
 }
