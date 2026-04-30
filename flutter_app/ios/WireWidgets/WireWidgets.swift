@@ -84,7 +84,8 @@ struct WalletEntity: AppEntity, Codable, Hashable {
 
 struct WalletEntityQuery: EntityQuery {
   func entities(for identifiers: [WalletEntity.ID]) async throws -> [WalletEntity] {
-    suggestedEntities().filter { identifiers.contains($0.id) }
+    let entities = try await suggestedEntities()
+    return entities.filter { identifiers.contains($0.id) }
   }
 
   func suggestedEntities() async throws -> [WalletEntity] {
@@ -95,7 +96,8 @@ struct WalletEntityQuery: EntityQuery {
   }
 
   func defaultResult() async -> WalletEntity? {
-    try? await suggestedEntities().first
+    let entities = try? await suggestedEntities()
+    return entities?.first
   }
 }
 
@@ -127,7 +129,8 @@ struct ModuleEntity: AppEntity, Codable, Hashable {
 
 struct ModuleEntityQuery: EntityQuery {
   func entities(for identifiers: [ModuleEntity.ID]) async throws -> [ModuleEntity] {
-    suggestedEntities().filter { identifiers.contains($0.id) }
+    let entities = try await suggestedEntities()
+    return entities.filter { identifiers.contains($0.id) }
   }
 
   func suggestedEntities() async throws -> [ModuleEntity] {
@@ -137,7 +140,8 @@ struct ModuleEntityQuery: EntityQuery {
   }
 
   func defaultResult() async -> ModuleEntity? {
-    try? await suggestedEntities().first
+    let entities = try? await suggestedEntities()
+    return entities?.first
   }
 }
 
