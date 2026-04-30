@@ -401,15 +401,17 @@
 /* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
-		AA0000140000000000000014 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = WireWidgetsExtension.entitlements;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = WireWidgets/Info.plist;
+			AA0000140000000000000014 /* Debug */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					APPLICATION_EXTENSION_API_ONLY = YES;
+					CLANG_ENABLE_MODULES = YES;
+					CODE_SIGN_STYLE = Automatic;
+					CODE_SIGN_ENTITLEMENTS = WireWidgetsExtension.entitlements;
+					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+					DEVELOPMENT_TEAM = 4Z8U6N4BV3;
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = WireWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -426,15 +428,17 @@
 			};
 			name = Debug;
 		};
-		AA0000150000000000000015 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = WireWidgetsExtension.entitlements;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = WireWidgets/Info.plist;
+			AA0000150000000000000015 /* Release */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					APPLICATION_EXTENSION_API_ONLY = YES;
+					CLANG_ENABLE_MODULES = YES;
+					CODE_SIGN_STYLE = Automatic;
+					CODE_SIGN_ENTITLEMENTS = WireWidgetsExtension.entitlements;
+					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+					DEVELOPMENT_TEAM = 4Z8U6N4BV3;
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = WireWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -450,15 +454,17 @@
 			};
 			name = Release;
 		};
-		AA0000160000000000000016 /* Profile */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				APPLICATION_EXTENSION_API_ONLY = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CODE_SIGN_ENTITLEMENTS = WireWidgetsExtension.entitlements;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = WireWidgets/Info.plist;
+			AA0000160000000000000016 /* Profile */ = {
+				isa = XCBuildConfiguration;
+				buildSettings = {
+					APPLICATION_EXTENSION_API_ONLY = YES;
+					CLANG_ENABLE_MODULES = YES;
+					CODE_SIGN_STYLE = Automatic;
+					CODE_SIGN_ENTITLEMENTS = WireWidgetsExtension.entitlements;
+					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+					DEVELOPMENT_TEAM = 4Z8U6N4BV3;
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = WireWidgets/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -526,16 +532,18 @@
 			};
 			name = Profile;
 		};
-		249021D4217E4FDB00AE95B9 /* Profile */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				ENABLE_BITCODE = NO;
-				INFOPLIST_FILE = Runner/Info.plist;
+			249021D4217E4FDB00AE95B9 /* Profile */ = {
+				isa = XCBuildConfiguration;
+				baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
+				buildSettings = {
+					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+					CODE_SIGN_STYLE = Automatic;
+					CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
+					CLANG_ENABLE_MODULES = YES;
+					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+					DEVELOPMENT_TEAM = 4Z8U6N4BV3;
+					ENABLE_BITCODE = NO;
+					INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -706,16 +714,18 @@
 			};
 			name = Release;
 		};
-		97C147061CF9000F007C117D /* Debug */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 9740EEB21CF90195004384FC /* Debug.xcconfig */;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				ENABLE_BITCODE = NO;
-				INFOPLIST_FILE = Runner/Info.plist;
+			97C147061CF9000F007C117D /* Debug */ = {
+				isa = XCBuildConfiguration;
+				baseConfigurationReference = 9740EEB21CF90195004384FC /* Debug.xcconfig */;
+				buildSettings = {
+					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+					CODE_SIGN_STYLE = Automatic;
+					CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
+					CLANG_ENABLE_MODULES = YES;
+					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+					DEVELOPMENT_TEAM = 4Z8U6N4BV3;
+					ENABLE_BITCODE = NO;
+					INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -729,16 +739,18 @@
 			};
 			name = Debug;
 		};
-		97C147071CF9000F007C117D /* Release */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
-				CLANG_ENABLE_MODULES = YES;
-				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				ENABLE_BITCODE = NO;
-				INFOPLIST_FILE = Runner/Info.plist;
+			97C147071CF9000F007C117D /* Release */ = {
+				isa = XCBuildConfiguration;
+				baseConfigurationReference = 7AFA3C8E1D35360C0083082E /* Release.xcconfig */;
+				buildSettings = {
+					ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+					CODE_SIGN_STYLE = Automatic;
+					CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
+					CLANG_ENABLE_MODULES = YES;
+					CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
+					DEVELOPMENT_TEAM = 4Z8U6N4BV3;
+					ENABLE_BITCODE = NO;
+					INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
