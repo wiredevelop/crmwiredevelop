@@ -29,8 +29,8 @@ class StripeTerminalController extends Controller
         return $this->success([
             'secret' => $token->secret,
             'location_id' => $locationId,
-            'fee_percent' => $terminal->feePercent(),
-            'fee_fixed' => $terminal->feeFixed(),
+            'surcharge_percent' => $terminal->surchargePercent(),
+            'surcharge_fixed' => $terminal->surchargeFixed(),
         ]);
     }
 
@@ -61,7 +61,9 @@ class StripeTerminalController extends Controller
             'payment_intent_id' => $created['payment_intent']->id,
             'client_secret' => $created['payment_intent']->client_secret,
             'terminal_payment_id' => $created['terminal_payment']->id,
+            'requested_amount' => (float) ($data['amount'] / 100),
             'gross_amount' => (float) $created['terminal_payment']->gross_amount,
+            'surcharge_amount' => round((float) $created['terminal_payment']->gross_amount - ((int) $data['amount'] / 100), 2),
             'fee_amount' => (float) $created['terminal_payment']->fee_amount,
             'net_amount' => (float) $created['terminal_payment']->net_amount,
             'currency' => $created['terminal_payment']->currency,

@@ -6,7 +6,9 @@ import { computed } from 'vue'
 
 const page = usePage()
 const form = useForm({
-    sales_goal_year: page.props.salesGoal ?? ''
+    sales_goal_year: page.props.salesGoal ?? '',
+    terminal_surcharge_percent: page.props.terminalSurchargePercent ?? 0,
+    terminal_surcharge_fixed: page.props.terminalSurchargeFixed ?? 0
 })
 
 const flash = computed(() => page.props.flash ?? {})
@@ -81,11 +83,12 @@ const registerPasskey = async () => {
             </div>
 
             <div class="bg-white p-6 rounded shadow">
-                <h2 class="text-xl font-semibold mb-2">Meta de Vendas</h2>
-                <p class="text-gray-500 mb-4">Define a meta anual para acompanhar no dashboard.</p>
+                <h2 class="text-xl font-semibold mb-2">Meta de Vendas e Terminal</h2>
+                <p class="text-gray-500 mb-4">Define a meta anual e a sobretaxa manual usada para repercutir a taxa Stripe no cliente.</p>
 
-                <form @submit.prevent="submitSalesGoal" class="flex flex-col gap-3 sm:flex-row sm:items-end">
-                    <div class="w-full sm:max-w-xs">
+                <form @submit.prevent="submitSalesGoal" class="flex flex-col gap-4">
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div class="w-full">
                         <label class="block text-sm font-medium text-gray-700 mb-1">Meta anual (€)</label>
                         <input
                             v-model="form.sales_goal_year"
@@ -96,13 +99,36 @@ const registerPasskey = async () => {
                             class="w-full border rounded px-3 py-2 text-sm"
                         />
                     </div>
+                        <div class="w-full">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Sobretaxa terminal (%)</label>
+                            <input
+                                v-model="form.terminal_surcharge_percent"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="1.50"
+                                class="w-full border rounded px-3 py-2 text-sm"
+                            />
+                        </div>
+                        <div class="w-full">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Sobretaxa terminal fixa (€)</label>
+                            <input
+                                v-model="form.terminal_surcharge_fixed"
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="0.25"
+                                class="w-full border rounded px-3 py-2 text-sm"
+                            />
+                        </div>
+                    </div>
 
                     <button
                         type="submit"
                         class="bg-[#015557] text-white px-4 py-2 rounded hover:bg-[#014548] disabled:opacity-50"
                         :disabled="form.processing"
                     >
-                        Guardar meta
+                        Guardar definições
                     </button>
                 </form>
             </div>

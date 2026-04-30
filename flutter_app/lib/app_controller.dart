@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -5,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 
 import 'services/api_client.dart';
+import 'services/widget_sync_service.dart';
 
 class WalletCheckoutReturn {
   const WalletCheckoutReturn({
@@ -21,6 +23,20 @@ class WalletCheckoutReturn {
 
   bool get isSuccess => status == 'success';
   bool get isCancel => status == 'cancel';
+}
+
+class AppNavigationRequest {
+  const AppNavigationRequest({
+    required this.route,
+    this.module,
+    this.clientId,
+    this.status,
+  });
+
+  final String route;
+  final String? module;
+  final String? clientId;
+  final String? status;
 }
 
 class AppController extends ChangeNotifier {
@@ -52,6 +68,10 @@ class AppController extends ChangeNotifier {
   String? _biometricAssociation;
   WalletCheckoutReturn? _pendingWalletCheckoutReturn;
   int _walletCheckoutReturnVersion = 0;
+  String? _pendingHomeShortcut;
+  int _homeShortcutVersion = 0;
+  AppNavigationRequest? _pendingNavigationRequest;
+  int _navigationRequestVersion = 0;
 
   bool get isReady => _isReady;
   bool get isAuthenticated => _token != null && _token!.isNotEmpty;
@@ -72,6 +92,8 @@ class AppController extends ChangeNotifier {
   WalletCheckoutReturn? get pendingWalletCheckoutReturn =>
       _pendingWalletCheckoutReturn;
   int get walletCheckoutReturnVersion => _walletCheckoutReturnVersion;
+  int get homeShortcutVersion => _homeShortcutVersion;
+  int get navigationRequestVersion => _navigationRequestVersion;
 
   ApiClient get client => ApiClient(baseUrl: _baseUrl, token: _token);
 
@@ -114,6 +136,10 @@ class AppController extends ChangeNotifier {
 
     _isReady = true;
     notifyListeners();
+
+    if (isAuthenticated && !mustChangePassword) {
+      unawaited(refreshWidgetData());
+    }
   }
 
   Future<void> updateBaseUrl(String value) async {
@@ -183,6 +209,7 @@ class AppController extends ChangeNotifier {
     await _storage.write(key: _tokenKey, value: _token);
     await _persistUser();
     await _syncBiometricAssociation();
+    await refreshWidgetData();
 
     notifyListeners();
   }
@@ -197,6 +224,7 @@ class AppController extends ChangeNotifier {
     await _storage.write(key: _apiPasswordKey, value: _apiPassword);
     await _persistUser();
     await _syncBiometricAssociation();
+    await refreshWidgetData();
     notifyListeners();
   }
 
@@ -235,35 +263,61 @@ class AppController extends ChangeNotifier {
   }
 
   void handleIncomingUri(Uri uri) {
+    if (uri.scheme != 'wirecrm') {
+      return;
+    }
+
     final isWalletReturn =
-        uri.scheme == 'wirecrm' &&
-        uri.host == 'wallet' &&
-        uri.path == '/checkout-return';
+        uri.host == 'wallet' && uri.path == '/checkout-return';
 
-    if (!isWalletReturn) {
+    if (isWalletReturn) {
+      final status = uri.queryParameters['status']?.trim();
+      if (status != 'success' && status != 'cancel') {
+        return;
+      }
+
+      _pendingWalletCheckoutReturn = WalletCheckoutReturn(
+        status: status!,
+        target: uri.queryParameters['target']?.trim().isNotEmpty == true
+            ? uri.queryParameters['target']!.trim()
+            : 'wallet',
+        sessionId: uri.queryParameters['session_id']?.trim(),
+        token: uri.queryParameters['token']?.trim(),
+      );
+      _walletCheckoutReturnVersion += 1;
+      notifyListeners();
       return;
     }
 
-    final status = uri.queryParameters['status']?.trim();
-    if (status != 'success' && status != 'cancel') {
-      return;
+    final navigationRequest = _navigationRequestFromUri(uri);
+    if (navigationRequest != null) {
+      _pendingNavigationRequest = navigationRequest;
+      _navigationRequestVersion += 1;
+      notifyListeners();
     }
-
-    _pendingWalletCheckoutReturn = WalletCheckoutReturn(
-      status: status!,
-      target: uri.queryParameters['target']?.trim().isNotEmpty == true
-          ? uri.queryParameters['target']!.trim()
-          : 'wallet',
-      sessionId: uri.queryParameters['session_id']?.trim(),
-      token: uri.queryParameters['token']?.trim(),
-    );
-    _walletCheckoutReturnVersion += 1;
-    notifyListeners();
   }
 
   WalletCheckoutReturn? consumePendingWalletCheckoutReturn() {
     final pending = _pendingWalletCheckoutReturn;
     _pendingWalletCheckoutReturn = null;
+    return pending;
+  }
+
+  void queueOpenSecurityShortcut() {
+    _pendingHomeShortcut = 'security';
+    _homeShortcutVersion += 1;
+    notifyListeners();
+  }
+
+  String? consumePendingHomeShortcut() {
+    final pending = _pendingHomeShortcut;
+    _pendingHomeShortcut = null;
+    return pending;
+  }
+
+  AppNavigationRequest? consumePendingNavigationRequest() {
+    final pending = _pendingNavigationRequest;
+    _pendingNavigationRequest = null;
     return pending;
   }
 
@@ -275,7 +329,16 @@ class AppController extends ChangeNotifier {
     await _resetLocalSession(
       preserveQuickLogin: _biometricEnabled && hasCachedCredentials,
     );
+    await WidgetSyncService.clear();
     notifyListeners();
+  }
+
+  Future<void> refreshWidgetData() async {
+    if (!isAuthenticated || mustChangePassword) {
+      return;
+    }
+
+    await WidgetSyncService.sync(client);
   }
 
   Future<void> _resetLocalSession({bool preserveQuickLogin = false}) async {
@@ -370,5 +433,36 @@ class AppController extends ChangeNotifier {
         user?['email']?.toString().trim().toLowerCase() ??
         email.trim().toLowerCase();
     return '${normalizeBaseUrl(baseUrl)}|$userId|$userEmail';
+  }
+
+  AppNavigationRequest? _navigationRequestFromUri(Uri uri) {
+    switch (uri.host) {
+      case 'wallet':
+        return const AppNavigationRequest(route: 'wallet');
+      case 'wallets':
+        return AppNavigationRequest(
+          route: 'wallets',
+          clientId: uri.queryParameters['client_id']?.trim(),
+        );
+      case 'invoices':
+        return AppNavigationRequest(
+          route: 'invoices',
+          status: uri.queryParameters['status']?.trim(),
+        );
+      case 'clients':
+        return const AppNavigationRequest(route: 'clients');
+      case 'projects':
+        return const AppNavigationRequest(route: 'projects');
+      case 'objects':
+        return const AppNavigationRequest(route: 'objects');
+      case 'more':
+        final module = uri.queryParameters['module']?.trim();
+        if (module == null || module.isEmpty) {
+          return const AppNavigationRequest(route: 'more');
+        }
+        return AppNavigationRequest(route: 'more', module: module);
+      default:
+        return null;
+    }
   }
 }

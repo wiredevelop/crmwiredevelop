@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\SettingsApiController;
 use App\Http\Controllers\Api\StripeWebhookApiController;
 use App\Http\Controllers\Api\StripeTerminalController;
 use App\Http\Controllers\Api\WalletApiController;
+use App\Http\Controllers\Api\WidgetApiController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->as('api.')->group(function () {
@@ -41,6 +42,7 @@ Route::prefix('v1')->as('api.')->group(function () {
 
     Route::middleware(['auth:sanctum', 'force.password.change'])->group(function () {
         Route::get('/dashboard', [DashboardApiController::class, 'index']);
+        Route::get('/widgets/summary', [WidgetApiController::class, 'summary']);
         Route::get('/objects', [ObjectPortalApiController::class, 'index']);
         Route::get('/wallet', [ClientWalletApiController::class, 'show']);
         Route::post('/wallet/checkout', [ClientWalletApiController::class, 'checkout']);

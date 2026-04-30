@@ -12,9 +12,13 @@ class SettingsController extends Controller
     public function index()
     {
         $salesGoal = Setting::where('key', 'sales_goal_year')->value('value');
+        $terminalSurchargePercent = Setting::where('key', 'terminal_surcharge_percent')->value('value');
+        $terminalSurchargeFixed = Setting::where('key', 'terminal_surcharge_fixed')->value('value');
 
         return Inertia::render('Settings/Index', [
             'salesGoal' => $salesGoal !== null ? (float) $salesGoal : null,
+            'terminalSurchargePercent' => $terminalSurchargePercent !== null ? (float) $terminalSurchargePercent : 0.0,
+            'terminalSurchargeFixed' => $terminalSurchargeFixed !== null ? (float) $terminalSurchargeFixed : 0.0,
             'ideStatus' => $this->ideStatus(),
         ]);
     }
@@ -23,16 +27,30 @@ class SettingsController extends Controller
     {
         $data = $request->validate([
             'sales_goal_year' => ['nullable', 'numeric', 'min:0'],
+            'terminal_surcharge_percent' => ['nullable', 'numeric', 'min:0', 'max:99.99'],
+            'terminal_surcharge_fixed' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         $value = $data['sales_goal_year'] ?? null;
+        $terminalSurchargePercent = $data['terminal_surcharge_percent'] ?? 0;
+        $terminalSurchargeFixed = $data['terminal_surcharge_fixed'] ?? 0;
 
         Setting::updateOrCreate(
             ['key' => 'sales_goal_year'],
             ['value' => $value !== null ? (string) $value : null]
         );
 
-        return back()->with('success', 'Meta de vendas atualizada.');
+        Setting::updateOrCreate(
+            ['key' => 'terminal_surcharge_percent'],
+            ['value' => (string) $terminalSurchargePercent]
+        );
+
+        Setting::updateOrCreate(
+            ['key' => 'terminal_surcharge_fixed'],
+            ['value' => (string) $terminalSurchargeFixed]
+        );
+
+        return back()->with('success', 'Definições atualizadas.');
     }
 
     public function toggleIde(Request $request)

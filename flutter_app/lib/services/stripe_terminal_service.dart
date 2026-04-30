@@ -27,8 +27,8 @@ class StripeTerminalService extends ChangeNotifier {
   bool? _supported;
   String? _statusMessage;
   String? _locationId;
-  double _feePercent = 0;
-  double _feeFixed = 0;
+  double _surchargePercent = 0;
+  double _surchargeFixed = 0;
   Reader? _reader;
   StreamSubscription<ConnectionStatus>? _connectionSubscription;
   Map<String, dynamic>? _deviceDiagnostics;
@@ -45,8 +45,8 @@ class StripeTerminalService extends ChangeNotifier {
   bool get supportKnown => _supported != null;
   String? get statusMessage => _statusMessage;
   String? get locationId => _locationId;
-  double get feePercent => _feePercent;
-  double get feeFixed => _feeFixed;
+  double get surchargePercent => _surchargePercent;
+  double get surchargeFixed => _surchargeFixed;
   Reader? get reader => _reader;
   bool get isConnected => _reader != null;
   Map<String, dynamic>? get deviceDiagnostics => _deviceDiagnostics;
@@ -88,7 +88,9 @@ class StripeTerminalService extends ChangeNotifier {
           shouldPrintLogs: true,
           fetchToken: _fetchConnectionToken,
         );
-      } else if (_locationId == null || _locationId!.isEmpty) {
+      } else if (requestPermissions ||
+          _locationId == null ||
+          _locationId!.isEmpty) {
         await _fetchConnectionToken();
       }
 
@@ -326,21 +328,20 @@ class StripeTerminalService extends ChangeNotifier {
     }
   }
 
-  int calculateGrossCents(int netCents) {
-    final net = netCents / 100;
-    final percent = feePercent / 100;
-    final fixed = feeFixed;
+  int calculateGrossCents(int requestedNetCents) {
+    final net = requestedNetCents / 100;
+    final percent = surchargePercent / 100;
+    final fixed = surchargeFixed;
     if (percent >= 1) {
-      return netCents;
+      return requestedNetCents;
     }
     final gross = (net + fixed) / max(0.000001, (1 - percent));
     return (gross * 100).ceil();
   }
 
-  int calculateFeeCents(int grossCents) {
-    final gross = grossCents / 100;
-    final fee = (gross * (feePercent / 100)) + feeFixed;
-    return (fee * 100).round();
+  int calculateSurchargeCents(int requestedNetCents) {
+    final grossCents = calculateGrossCents(requestedNetCents);
+    return max(0, grossCents - requestedNetCents);
   }
 
   @override
@@ -407,11 +408,11 @@ class StripeTerminalService extends ChangeNotifier {
     final result = await _client.get('/stripe/connection-token');
     final data = (result['data'] as Map).cast<String, dynamic>();
     _locationId = data['location_id']?.toString();
-    _feePercent = (data['fee_percent'] as num?)?.toDouble() ?? 0;
-    _feeFixed = (data['fee_fixed'] as num?)?.toDouble() ?? 0;
+    _surchargePercent = (data['surcharge_percent'] as num?)?.toDouble() ?? 0;
+    _surchargeFixed = (data['surcharge_fixed'] as num?)?.toDouble() ?? 0;
     _appendLog(
       'Connection token recebido. Location: ${_locationId ?? 'sem location'}; '
-      'taxa: ${_feePercent.toStringAsFixed(2)}% + ${_feeFixed.toStringAsFixed(2)}.',
+      'sobretaxa: ${_surchargePercent.toStringAsFixed(2)}% + ${_surchargeFixed.toStringAsFixed(2)}.',
     );
     notifyListeners();
     return data['secret']?.toString() ?? '';

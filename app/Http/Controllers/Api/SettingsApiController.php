@@ -16,9 +16,13 @@ class SettingsApiController extends Controller
     public function index(): JsonResponse
     {
         $salesGoal = Setting::where('key', 'sales_goal_year')->value('value');
+        $terminalSurchargePercent = Setting::where('key', 'terminal_surcharge_percent')->value('value');
+        $terminalSurchargeFixed = Setting::where('key', 'terminal_surcharge_fixed')->value('value');
 
         return $this->success([
             'sales_goal' => $salesGoal !== null ? (float) $salesGoal : null,
+            'terminal_surcharge_percent' => $terminalSurchargePercent !== null ? (float) $terminalSurchargePercent : 0.0,
+            'terminal_surcharge_fixed' => $terminalSurchargeFixed !== null ? (float) $terminalSurchargeFixed : 0.0,
             'ide_status' => $this->ideStatus(),
         ]);
     }
@@ -27,14 +31,22 @@ class SettingsApiController extends Controller
     {
         $data = $request->validate([
             'sales_goal_year' => ['nullable', 'numeric', 'min:0'],
+            'terminal_surcharge_percent' => ['nullable', 'numeric', 'min:0', 'max:99.99'],
+            'terminal_surcharge_fixed' => ['nullable', 'numeric', 'min:0'],
         ]);
 
         $value = $data['sales_goal_year'] ?? null;
+        $terminalSurchargePercent = $data['terminal_surcharge_percent'] ?? 0;
+        $terminalSurchargeFixed = $data['terminal_surcharge_fixed'] ?? 0;
         Setting::updateOrCreate(['key' => 'sales_goal_year'], ['value' => $value !== null ? (string) $value : null]);
+        Setting::updateOrCreate(['key' => 'terminal_surcharge_percent'], ['value' => (string) $terminalSurchargePercent]);
+        Setting::updateOrCreate(['key' => 'terminal_surcharge_fixed'], ['value' => (string) $terminalSurchargeFixed]);
 
         return $this->success([
             'sales_goal' => $value !== null ? (float) $value : null,
-        ], 'Meta de vendas atualizada.');
+            'terminal_surcharge_percent' => (float) $terminalSurchargePercent,
+            'terminal_surcharge_fixed' => (float) $terminalSurchargeFixed,
+        ], 'Definições atualizadas.');
     }
 
     public function toggleIde(): JsonResponse

@@ -234,7 +234,8 @@ class _LoginScreenState extends State<LoginScreen> {
         content: const Padding(
           padding: EdgeInsets.only(top: 10),
           child: Text(
-            'Pode ativar impressão digital ou Face ID para entrar mais rápido.',
+            'Pode ativar impressão digital ou Face ID para entrar mais rápido. '
+            'Ao continuar vamos abrir Mais > Segurança.',
           ),
         ),
         actions: [
@@ -251,18 +252,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
 
     if (enable == true) {
-      final authenticated = await widget.controller
-          .authenticateWithBiometrics();
-      if (!mounted) return;
-
-      if (!authenticated) {
-        setState(
-          () => _error = 'A ativação biométrica foi cancelada ou falhou.',
-        );
-        return;
-      }
-
-      await widget.controller.setBiometricEnabled(true);
+      widget.controller.queueOpenSecurityShortcut();
     }
   }
 
@@ -534,7 +524,8 @@ class _ForcedPasswordChangeScreenState
         content: const Padding(
           padding: EdgeInsets.only(top: 10),
           child: Text(
-            'Pode ativar Face ID ou impressão digital para entrar mais rápido neste dispositivo.',
+            'Pode ativar Face ID ou impressão digital para entrar mais rápido neste dispositivo. '
+            'Ao continuar vamos abrir Mais > Segurança.',
           ),
         ),
         actions: [
@@ -550,17 +541,9 @@ class _ForcedPasswordChangeScreenState
       ),
     );
 
-    if (enable != true || !mounted) return;
-
-    final authenticated = await widget.controller.authenticateWithBiometrics();
-    if (!mounted) return;
-
-    if (!authenticated) {
-      setState(() => _error = 'A ativação biométrica foi cancelada ou falhou.');
-      return;
+    if (enable == true) {
+      widget.controller.queueOpenSecurityShortcut();
     }
-
-    await widget.controller.setBiometricEnabled(true);
   }
 
   @override
@@ -695,15 +678,162 @@ class _ForcedPasswordChangeScreenState
   }
 }
 
-class HomeShell extends StatelessWidget {
+class HomeShell extends StatefulWidget {
   const HomeShell({super.key, required this.controller});
 
   final AppController controller;
 
   @override
+  State<HomeShell> createState() => _HomeShellState();
+}
+
+class _HomeShellState extends State<HomeShell> {
+  late final CupertinoTabController _tabController;
+  final GlobalKey<NavigatorState> _moreTabNavigatorKey =
+      GlobalKey<NavigatorState>();
+  int _lastHandledHomeShortcutVersion = 0;
+  int _lastHandledNavigationVersion = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = CupertinoTabController();
+    widget.controller.addListener(_handleControllerChange);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleControllerChange();
+    });
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_handleControllerChange);
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  void _handleControllerChange() {
+    if (!mounted) return;
+
+    final version = widget.controller.homeShortcutVersion;
+    if (version != _lastHandledHomeShortcutVersion) {
+      _lastHandledHomeShortcutVersion = version;
+
+      final shortcut = widget.controller.consumePendingHomeShortcut();
+      if (shortcut == 'security') {
+        _openMoreModule('security');
+      }
+    }
+
+    final navigationVersion = widget.controller.navigationRequestVersion;
+    if (navigationVersion != _lastHandledNavigationVersion) {
+      _lastHandledNavigationVersion = navigationVersion;
+      final request = widget.controller.consumePendingNavigationRequest();
+      if (request != null) {
+        _openNavigationRequest(request);
+      }
+    }
+  }
+
+  void _openNavigationRequest(AppNavigationRequest request) {
+    switch (request.route) {
+      case 'clients':
+        if (!widget.controller.isClientUser) {
+          _tabController.index = 1;
+        }
+        return;
+      case 'objects':
+        if (widget.controller.isClientUser) {
+          _tabController.index = 1;
+        }
+        return;
+      case 'projects':
+        _tabController.index = 2;
+        return;
+      case 'wallet':
+        _openMoreModule('wallet');
+        return;
+      case 'wallets':
+        _openMoreModule('wallets', clientId: request.clientId);
+        return;
+      case 'invoices':
+        _openMoreModule('documents', invoiceStatus: request.status);
+        return;
+      case 'more':
+        if (request.module == null || request.module!.isEmpty) {
+          _tabController.index = 3;
+          return;
+        }
+        _openMoreModule(request.module!);
+        return;
+    }
+  }
+
+  void _openMoreModule(
+    String module, {
+    String? clientId,
+    String? invoiceStatus,
+  }) {
+    _tabController.index = 3;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final screen = _buildMoreModuleScreen(
+        module,
+        clientId: clientId,
+        invoiceStatus: invoiceStatus,
+      );
+      if (screen == null) {
+        return;
+      }
+      _moreTabNavigatorKey.currentState?.push(
+        CupertinoPageRoute(builder: (_) => screen),
+      );
+    });
+  }
+
+  Widget? _buildMoreModuleScreen(
+    String module, {
+    String? clientId,
+    String? invoiceStatus,
+  }) {
+    switch (module) {
+      case 'wallet':
+        return ClientWalletScreen(controller: widget.controller);
+      case 'security':
+        return SecurityScreen(controller: widget.controller);
+      case 'documents':
+        return InvoicesScreen(
+          controller: widget.controller,
+          initialStatusFilter: invoiceStatus,
+        );
+      case 'quotes':
+        return QuotesScreen(controller: widget.controller);
+      case 'products':
+        return ProductsScreen(controller: widget.controller);
+      case 'finance':
+        return FinanceScreen(controller: widget.controller);
+      case 'terminal':
+        return TapToPayScreen(controller: widget.controller);
+      case 'interventions':
+        return InterventionsScreen(controller: widget.controller);
+      case 'wallets':
+        return WalletsScreen(
+          controller: widget.controller,
+          initialClientId: clientId,
+        );
+      case 'company':
+        return CompanyScreen(controller: widget.controller);
+      case 'settings':
+        return SettingsScreen(controller: widget.controller);
+      default:
+        return null;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final isClientUser = controller.isClientUser;
+    final isClientUser = widget.controller.isClientUser;
     return CupertinoTabScaffold(
+      controller: _tabController,
       tabBar: CupertinoTabBar(
         backgroundColor: CupertinoColors.white.withValues(alpha: 0.16),
         activeColor: CupertinoColors.white,
@@ -735,18 +865,19 @@ class HomeShell extends StatelessWidget {
       ),
       tabBuilder: (context, index) {
         return CupertinoTabView(
+          navigatorKey: index == 3 ? _moreTabNavigatorKey : null,
           builder: (context) {
             switch (index) {
               case 0:
-                return DashboardScreen(controller: controller);
+                return DashboardScreen(controller: widget.controller);
               case 1:
                 return isClientUser
-                    ? ObjectsScreen(controller: controller)
-                    : ClientsScreen(controller: controller);
+                    ? ObjectsScreen(controller: widget.controller)
+                    : ClientsScreen(controller: widget.controller);
               case 2:
-                return ProjectsScreen(controller: controller);
+                return ProjectsScreen(controller: widget.controller);
               default:
-                return MoreModulesScreen(controller: controller);
+                return MoreModulesScreen(controller: widget.controller);
             }
           },
         );
@@ -785,6 +916,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       setState(
         () => _payload = (result['data'] as Map).cast<String, dynamic>(),
       );
+      unawaited(widget.controller.refreshWidgetData());
     } on ApiException catch (error) {
       setState(() => _error = error.message);
     } finally {
@@ -4254,8 +4386,8 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
   int get _grossAmountCents =>
       _terminalService.calculateGrossCents(_baseAmountCents);
 
-  int get _feeAmountCents =>
-      _terminalService.calculateFeeCents(_grossAmountCents);
+  int get _surchargeAmountCents =>
+      _terminalService.calculateSurchargeCents(_baseAmountCents);
 
   Future<void> _connect() async {
     try {
@@ -4282,7 +4414,7 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
 
     try {
       final result = await _terminalService.processPayment(
-        _grossAmountCents,
+        _baseAmountCents,
         description: _descriptionController.text.trim().isEmpty
             ? null
             : _descriptionController.text.trim(),
@@ -4310,9 +4442,9 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
   @override
   Widget build(BuildContext context) {
     final status = _terminalService.statusMessage ?? 'Sem estado.';
-    final feeAmount = _feeAmountCents / 100;
-    final grossAmount = _grossAmountCents / 100;
     final baseAmount = _baseAmountCents / 100;
+    final surchargeAmount = _surchargeAmountCents / 100;
+    final grossAmount = _grossAmountCents / 100;
     final diagnostics = _terminalService.deviceDiagnostics;
 
     return CupertinoPageScaffold(
@@ -4508,8 +4640,8 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
                             value: money(baseAmount),
                           ),
                           _FinanceStatTile(
-                            label: 'Taxa Stripe',
-                            value: money(feeAmount),
+                            label: 'Sobretaxa',
+                            value: money(surchargeAmount),
                           ),
                           _FinanceStatTile(
                             label: 'Cobrar',
@@ -4519,7 +4651,7 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
                       ),
                       const SizedBox(height: 10),
                       Text(
-                        'Taxa configurada: ${_terminalService.feePercent.toStringAsFixed(2)}% + ${money(_terminalService.feeFixed)}',
+                        'Sobretaxa configurada: ${_terminalService.surchargePercent.toStringAsFixed(2)}% + ${money(_terminalService.surchargeFixed)}.',
                         style: const TextStyle(
                           color: Color(0xFF163F41),
                           fontWeight: FontWeight.w600,
@@ -4921,9 +5053,14 @@ class _ProductsScreenState extends State<ProductsScreen> {
 }
 
 class InvoicesScreen extends StatefulWidget {
-  const InvoicesScreen({super.key, required this.controller});
+  const InvoicesScreen({
+    super.key,
+    required this.controller,
+    this.initialStatusFilter,
+  });
 
   final AppController controller;
+  final String? initialStatusFilter;
 
   @override
   State<InvoicesScreen> createState() => _InvoicesScreenState();
@@ -4946,10 +5083,14 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
       _error = null;
     });
     try {
-      final result = await widget.controller.client.get(
-        '/invoices?per_page=50',
-      );
+      final query = <String>[
+        'per_page=50',
+        if ((widget.initialStatusFilter ?? '').trim().isNotEmpty)
+          'status=${Uri.encodeQueryComponent(widget.initialStatusFilter!.trim())}',
+      ].join('&');
+      final result = await widget.controller.client.get('/invoices?$query');
       setState(() => _invoices = result['data'] as List<dynamic>? ?? []);
+      unawaited(widget.controller.refreshWidgetData());
     } on ApiException catch (error) {
       setState(() => _error = error.message);
     } finally {
@@ -6579,9 +6720,14 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
 }
 
 class WalletsScreen extends StatefulWidget {
-  const WalletsScreen({super.key, required this.controller});
+  const WalletsScreen({
+    super.key,
+    required this.controller,
+    this.initialClientId,
+  });
 
   final AppController controller;
+  final String? initialClientId;
 
   @override
   State<WalletsScreen> createState() => _WalletsScreenState();
@@ -6605,6 +6751,9 @@ class _WalletsScreenState extends State<WalletsScreen> {
   @override
   void initState() {
     super.initState();
+    _selectedClientId = widget.initialClientId?.trim().isEmpty == true
+        ? null
+        : widget.initialClientId?.trim();
     _load();
   }
 
@@ -6648,6 +6797,7 @@ class _WalletsScreenState extends State<WalletsScreen> {
         }
         _syncPackItemSelection();
       });
+      unawaited(widget.controller.refreshWidgetData());
     } on ApiException catch (error) {
       setState(() => _error = error.message);
     } finally {
@@ -7131,6 +7281,7 @@ class _ClientWalletScreenState extends State<ClientWalletScreen> {
         }
         _syncPackItemSelection();
       });
+      unawaited(widget.controller.refreshWidgetData());
     } on ApiException catch (error) {
       setState(() => _error = error.message);
     } finally {
@@ -8014,7 +8165,7 @@ class SettingsScreen extends _CompanyLikeScreen {
         title: 'Definições',
         endpoint: '/settings',
         savePath: '/settings/sales-goal',
-        singleNumberField: true,
+        settingsFields: true,
       );
 }
 
@@ -8624,6 +8775,7 @@ class _CompanyLikeScreen extends StatefulWidget {
     required this.endpoint,
     required this.savePath,
     this.singleNumberField = false,
+    this.settingsFields = false,
   });
 
   final AppController controller;
@@ -8631,6 +8783,7 @@ class _CompanyLikeScreen extends StatefulWidget {
   final String endpoint;
   final String savePath;
   final bool singleNumberField;
+  final bool settingsFields;
 
   @override
   State<_CompanyLikeScreen> createState() => _CompanyLikeScreenState();
@@ -8657,7 +8810,15 @@ class _CompanyLikeScreenState extends State<_CompanyLikeScreen> {
     try {
       final result = await widget.controller.client.get(widget.endpoint);
       final payload = (result['data'] as Map).cast<String, dynamic>();
-      _data = widget.singleNumberField
+      _data = widget.settingsFields
+          ? {
+              'sales_goal_year': payload['sales_goal']?.toString() ?? '',
+              'terminal_surcharge_percent':
+                  payload['terminal_surcharge_percent']?.toString() ?? '0',
+              'terminal_surcharge_fixed':
+                  payload['terminal_surcharge_fixed']?.toString() ?? '0',
+            }
+          : widget.singleNumberField
           ? {'sales_goal_year': payload['sales_goal']?.toString() ?? ''}
           : (payload['company'] as Map?)?.cast<String, dynamic>() ?? {};
 
@@ -8712,9 +8873,35 @@ class _CompanyLikeScreenState extends State<_CompanyLikeScreen> {
       onSave: _save,
       children: [
         for (final entry in _controllers.entries)
-          _field(entry.key, entry.value),
+          _field(
+            _labelForField(entry.key),
+            entry.value,
+            keyboardType: _isNumericField(entry.key)
+                ? const TextInputType.numberWithOptions(decimal: true)
+                : TextInputType.text,
+          ),
       ],
     );
+  }
+
+  String _labelForField(String key) {
+    if (widget.settingsFields) {
+      switch (key) {
+        case 'sales_goal_year':
+          return 'Meta anual (€)';
+        case 'terminal_surcharge_percent':
+          return 'Sobretaxa terminal (%)';
+        case 'terminal_surcharge_fixed':
+          return 'Sobretaxa terminal fixa (€)';
+      }
+    }
+
+    return key;
+  }
+
+  bool _isNumericField(String key) {
+    return widget.settingsFields ||
+        (widget.singleNumberField && key == 'sales_goal_year');
   }
 }
 
