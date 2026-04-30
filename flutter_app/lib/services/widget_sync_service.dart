@@ -9,7 +9,7 @@ import 'api_client.dart';
 class WidgetSyncService {
   WidgetSyncService._();
 
-  static const String appGroupId = 'group.com.wiredevelop.wireCrmApp.widgets';
+  static const String appGroupId = 'group.com.wiredevelop.wirecrmapp.widgets';
   static const String summaryKey = 'wire_widget_summary';
   static const String updatedAtKey = 'wire_widget_updated_at';
 

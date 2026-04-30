@@ -2,7 +2,7 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-private let widgetGroupId = "group.com.wiredevelop.wireCrmApp.widgets"
+private let widgetGroupId = "group.com.wiredevelop.wirecrmapp.widgets"
 private let widgetSummaryKey = "wire_widget_summary"
 
 struct WireWidgetPayload: Decodable {

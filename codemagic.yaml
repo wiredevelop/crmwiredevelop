@@ -56,10 +56,10 @@ workflows:
         - appstore_credentials
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.wiredevelop.wireCrmApp
+        bundle_identifier: com.wiredevelop.wirecrmapp
       vars:
         PROJECT_DIR: flutter_app
-        BUNDLE_ID_IOS: com.wiredevelop.wireCrmApp
+        BUNDLE_ID_IOS: com.wiredevelop.wirecrmapp
     cache:
       cache_paths:
         - $HOME/.pub-cache
