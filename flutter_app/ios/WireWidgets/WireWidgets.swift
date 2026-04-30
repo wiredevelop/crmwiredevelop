@@ -91,15 +91,15 @@ struct ModuleEntry: TimelineEntry {
 
 struct WalletProvider: TimelineProvider {
   func placeholder(in context: Context) -> WalletEntry {
-    WalletEntry(date: .now, wallet: nil)
+    WalletEntry(date: Date(), wallet: nil)
   }
 
   func getSnapshot(in context: Context, completion: @escaping (WalletEntry) -> Void) {
-    completion(WalletEntry(date: .now, wallet: defaultWallet()))
+    completion(WalletEntry(date: Date(), wallet: defaultWallet()))
   }
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<WalletEntry>) -> Void) {
-    let entry = WalletEntry(date: .now, wallet: defaultWallet())
+    let entry = WalletEntry(date: Date(), wallet: defaultWallet())
     completion(Timeline(entries: [entry], policy: .never))
   }
 
@@ -110,15 +110,15 @@ struct WalletProvider: TimelineProvider {
 
 struct BillingProvider: TimelineProvider {
   func placeholder(in context: Context) -> BillingEntry {
-    BillingEntry(date: .now, item: nil)
+    BillingEntry(date: Date(), item: nil)
   }
 
   func getSnapshot(in context: Context, completion: @escaping (BillingEntry) -> Void) {
-    completion(BillingEntry(date: .now, item: defaultBilling()))
+    completion(BillingEntry(date: Date(), item: defaultBilling()))
   }
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<BillingEntry>) -> Void) {
-    let entry = BillingEntry(date: .now, item: defaultBilling())
+    let entry = BillingEntry(date: Date(), item: defaultBilling())
     completion(Timeline(entries: [entry], policy: .never))
   }
 
@@ -130,30 +130,30 @@ struct BillingProvider: TimelineProvider {
 
 struct StatsProvider: TimelineProvider {
   func placeholder(in context: Context) -> StatsEntry {
-    StatsEntry(date: .now, stats: [])
+    StatsEntry(date: Date(), stats: [])
   }
 
   func getSnapshot(in context: Context, completion: @escaping (StatsEntry) -> Void) {
-    completion(StatsEntry(date: .now, stats: WireWidgetPayload.load().stats))
+    completion(StatsEntry(date: Date(), stats: WireWidgetPayload.load().stats))
   }
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<StatsEntry>) -> Void) {
-    let entry = StatsEntry(date: .now, stats: WireWidgetPayload.load().stats)
+    let entry = StatsEntry(date: Date(), stats: WireWidgetPayload.load().stats)
     completion(Timeline(entries: [entry], policy: .never))
   }
 }
 
 struct ModuleProvider: TimelineProvider {
   func placeholder(in context: Context) -> ModuleEntry {
-    ModuleEntry(date: .now, module: nil)
+    ModuleEntry(date: Date(), module: nil)
   }
 
   func getSnapshot(in context: Context, completion: @escaping (ModuleEntry) -> Void) {
-    completion(ModuleEntry(date: .now, module: defaultModule()))
+    completion(ModuleEntry(date: Date(), module: defaultModule()))
   }
 
   func getTimeline(in context: Context, completion: @escaping (Timeline<ModuleEntry>) -> Void) {
-    let entry = ModuleEntry(date: .now, module: defaultModule())
+    let entry = ModuleEntry(date: Date(), module: defaultModule())
     completion(Timeline(entries: [entry], policy: .never))
   }
 
