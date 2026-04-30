@@ -194,13 +194,14 @@ class InterventionController extends Controller
             'finish_notes' => ['nullable', 'string', 'max:2000'],
             'ended_at' => ['nullable', 'date'],
             'duration_minutes' => ['nullable', 'integer', 'min:0'],
+            'duration_input' => ['nullable', 'regex:/^\d{1,3}:\d{2}:\d{2}$/'],
         ]);
 
         if ($intervention->status === 'completed') {
             return back()->with('error', 'Intervenção já concluída.');
         }
 
-        if (! empty($data['ended_at']) && ! empty($data['duration_minutes'])) {
+        if (! empty($data['ended_at']) && (! empty($data['duration_minutes']) || ! empty($data['duration_input']))) {
             return back()->withErrors([
                 'ended_at' => 'Indica apenas a hora de fim ou a duração.',
             ]);
@@ -209,6 +210,9 @@ class InterventionController extends Controller
         $now = now();
         $endAtInput = ! empty($data['ended_at']) ? Carbon::parse($data['ended_at']) : null;
         $durationMinutes = isset($data['duration_minutes']) ? (int) $data['duration_minutes'] : null;
+        $durationSeconds = ! empty($data['duration_input'])
+            ? $this->parseDurationInput($data['duration_input'])
+            : ($durationMinutes !== null ? max(0, $durationMinutes * 60) : null);
 
         if ($endAtInput && $intervention->started_at && $endAtInput->lessThan($intervention->started_at)) {
             return back()->withErrors([
@@ -225,8 +229,8 @@ class InterventionController extends Controller
         }
 
         $totalSeconds = 0;
-        if ($durationMinutes !== null) {
-            $totalSeconds = max(0, $durationMinutes * 60);
+        if ($durationSeconds !== null) {
+            $totalSeconds = $durationSeconds;
         } elseif ($intervention->started_at) {
             $endAt = $endAtInput ?? $now;
             $totalSeconds = max(
@@ -235,7 +239,7 @@ class InterventionController extends Controller
             );
         }
 
-        if ($durationMinutes !== null && $intervention->started_at) {
+        if ($durationSeconds !== null && $intervention->started_at) {
             $endAt = $intervention->started_at
                 ->copy()
                 ->addSeconds($totalPaused + $totalSeconds);
@@ -330,5 +334,12 @@ class InterventionController extends Controller
         } catch (\Throwable $e) {
             Log::warning('Intervention finish email failed: '.$e->getMessage());
         }
+    }
+
+    private function parseDurationInput(string $value): int
+    {
+        [$hours, $minutes, $seconds] = array_map('intval', explode(':', $value));
+
+        return max(0, ($hours * 3600) + ($minutes * 60) + $seconds);
     }
 }

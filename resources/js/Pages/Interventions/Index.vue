@@ -193,23 +193,22 @@ const finish = (item) => {
     if (finishNotes === null) return
     const endInput = prompt('Hora de fim (YYYY-MM-DD HH:MM) opcional. Deixa vazio para não alterar:')
     if (endInput === null) return
-    let durationMinutes = null
+    let durationInput = null
     if (!endInput.trim()) {
-        const durationInput = prompt('Duração em minutos (opcional):')
-        if (durationInput === null) return
-        if (durationInput.trim()) {
-            const parsed = Number.parseInt(durationInput, 10)
-            if (!Number.isFinite(parsed) || parsed < 0) {
-                alert('Indica uma duração em minutos válida.')
+        const rawDurationInput = prompt('Duração (hh:mm:ss) opcional:')
+        if (rawDurationInput === null) return
+        if (rawDurationInput.trim()) {
+            if (!/^\d{1,3}:\d{2}:\d{2}$/.test(rawDurationInput.trim())) {
+                alert('Indica uma duração válida no formato hh:mm:ss.')
                 return
             }
-            durationMinutes = parsed
+            durationInput = rawDurationInput.trim()
         }
     }
     router.post(`/interventions/${item.id}/finish`, {
         finish_notes: finishNotes.trim() || null,
         ended_at: endInput.trim() || null,
-        duration_minutes: durationMinutes
+        duration_input: durationInput
     }, { preserveScroll: true })
 }
 
