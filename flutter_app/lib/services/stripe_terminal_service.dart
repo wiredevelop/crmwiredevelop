@@ -352,15 +352,15 @@ class StripeTerminalService extends ChangeNotifier {
 
   Future<void> _requestPermissions() async {
     final sdkInt = (_deviceDiagnostics?['sdkInt'] as num?)?.toInt() ?? 0;
-    final permissions = <Permission>[
-      Permission.locationWhenInUse,
-      if (Platform.isAndroid && sdkInt >= 31) ...[
+    final permissions = <Permission>[Permission.locationWhenInUse];
+    if (Platform.isAndroid && sdkInt >= 31) {
+      permissions.addAll([
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
-      ] else ...[
-        Permission.bluetooth,
-      ],
-    ];
+      ]);
+    } else {
+      permissions.add(Permission.bluetooth);
+    }
 
     final beforeStatuses = <Permission, PermissionStatus>{};
     for (final permission in permissions) {
@@ -378,6 +378,7 @@ class StripeTerminalService extends ChangeNotifier {
       (entry) => entry.value.isPermanentlyDenied || entry.value.isRestricted,
     );
     if (permanentlyDenied.isNotEmpty) {
+      await openAppSettings();
       throw Exception(
         'As permissões de localização e bluetooth foram recusadas. '
         'Abre as definições da app para as ativares e tenta novamente.',
@@ -390,7 +391,7 @@ class StripeTerminalService extends ChangeNotifier {
     if (denied.isNotEmpty) {
       throw Exception(
         'É necessário permitir localização e bluetooth para usar o terminal. '
-        'Aceita o pedido de permissão do Android e tenta novamente.',
+        'Aceita o pedido de permissão e tenta novamente.',
       );
     }
 
@@ -494,6 +495,9 @@ class StripeTerminalService extends ChangeNotifier {
   }
 
   String? _diagnosticBlocker() {
+    if (Platform.isIOS) {
+      return null;
+    }
     if (!Platform.isAndroid) {
       return null;
     }

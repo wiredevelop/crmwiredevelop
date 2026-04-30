@@ -43,12 +43,16 @@
 	<string>Use Face ID para autenticação rápida no Wire CRM.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>A câmara pode ser usada para funcionalidades de pagamento e captura associadas ao Wire CRM.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>A galeria pode ser usada para anexar imagens e provas nos projetos do Wire CRM.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>O acesso à localização é necessário para aceitar pagamentos presenciais com Stripe Terminal.</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
 	<string>O acesso Bluetooth é necessário para ligar a leitores compatíveis com Stripe Terminal.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Esta app usa Bluetooth para pagamentos presenciais com Stripe Terminal.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

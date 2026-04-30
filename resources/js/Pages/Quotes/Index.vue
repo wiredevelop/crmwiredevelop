@@ -3,7 +3,7 @@ import BaseLayout from '@/Layouts/BaseLayout.vue'
 import { router, usePage } from '@inertiajs/vue3'
 import { computed, ref } from 'vue'
 
-const { quotes, pipelineBaseTotal, adjudicationsTotal, installmentsTotal, installmentsByProject } = usePage().props
+const { quotes, pipelineBaseTotal, adjudicationsTotal, installmentsTotal, installmentsByProject, selectedYear, availableYears } = usePage().props
 const list = ref(quotes.data || [])
 const adjudicationPercent = ref({})
 const adjudicationPaidAt = ref({})
@@ -11,6 +11,8 @@ const baseTotal = ref(Number(pipelineBaseTotal || 0))
 const adjudicationsTotalValue = ref(Number(adjudicationsTotal || 0))
 const installmentsTotalValue = ref(Number(installmentsTotal || 0))
 const installmentsByProjectValue = ref(installmentsByProject || {})
+const yearFilter = ref(Number(selectedYear || new Date().getFullYear()))
+const yearOptions = computed(() => (availableYears || []).map((year) => Number(year)))
 
 const normalizeDateInput = (value) => {
     if (!value) return ''
@@ -94,11 +96,33 @@ const remainingForQuote = (quote) => {
     const installments = Number(installmentsByProjectValue.value?.[quote.project_id] || 0)
     return Math.max(0, base - adjudication - installments)
 }
+
+const applyYearFilter = () => {
+    router.get('/quotes', {
+        year: yearFilter.value
+    }, {
+        preserveScroll: true,
+        preserveState: false
+    })
+}
 </script>
 
 <template>
     <BaseLayout>
         <template #title>Orçamentos</template>
+
+        <div class="mb-4 flex items-center justify-end gap-3">
+            <label class="text-sm text-gray-600">Ano</label>
+            <select
+                v-model="yearFilter"
+                class="rounded border px-3 py-2 text-sm"
+                @change="applyYearFilter"
+            >
+                <option v-for="year in yearOptions" :key="year" :value="year">
+                    {{ year }}
+                </option>
+            </select>
+        </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div class="bg-white rounded shadow p-4">

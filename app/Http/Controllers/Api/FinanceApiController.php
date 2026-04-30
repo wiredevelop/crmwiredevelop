@@ -18,10 +18,19 @@ class FinanceApiController extends Controller
 {
     use RespondsWithJson;
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        $year = $this->selectedYear($request);
+
         $projectSales = Project::with(['client:id,name', 'quote:id,project_id,price_development,price_domain_first_year,price_hosting_first_year,price_maintenance_monthly,include_domain,include_hosting', 'invoice:id,project_id,number,total,status,issued_at,paid_at,payment_method,payment_account,created_at'])
             ->where('status', 'concluido')
+            ->where(function ($query) use ($year) {
+                $query
+                    ->whereHas('invoice', fn ($invoiceQuery) => $invoiceQuery->whereYear('issued_at', $year))
+                    ->orWhere(function ($projectQuery) use ($year) {
+                        $projectQuery->doesntHave('invoice')->whereYear('updated_at', $year);
+                    });
+            })
             ->orderByDesc('updated_at')
             ->take(200)
             ->get()
@@ -72,6 +81,7 @@ class FinanceApiController extends Controller
                         $subQuery->where('type', 'usage')->whereNotNull('intervention_id');
                     });
             })
+            ->whereYear('transaction_at', $year)
             ->orderByDesc('transaction_at')
             ->take(200)
             ->get()
@@ -149,6 +159,13 @@ class FinanceApiController extends Controller
 
         $terminalSales = TerminalPayment::query()
             ->with('user:id,name')
+            ->where(function ($query) use ($year) {
+                $query
+                    ->whereYear('paid_at', $year)
+                    ->orWhere(function ($subQuery) use ($year) {
+                        $subQuery->whereNull('paid_at')->whereYear('created_at', $year);
+                    });
+            })
             ->orderByDesc('updated_at')
             ->take(200)
             ->get()
@@ -191,7 +208,7 @@ class FinanceApiController extends Controller
             'client_id' => $project->client_id,
             'client' => $project->client?->name ?? '—',
         ])->toArray();
-        $installments = Installment::with(['project:id,name', 'client:id,name', 'invoice:id,number'])->orderByDesc('paid_at')->take(200)->get()->map(fn ($installment) => [
+        $installments = Installment::with(['project:id,name', 'client:id,name', 'invoice:id,number'])->whereYear('paid_at', $year)->orderByDesc('paid_at')->take(200)->get()->map(fn ($installment) => [
             'id' => $installment->id,
             'project_id' => $installment->project_id,
             'project' => $installment->project?->name ?? '—',
@@ -203,7 +220,7 @@ class FinanceApiController extends Controller
             'note' => $installment->note,
             'paid_at' => $installment->paid_at?->toDateString(),
         ])->toArray();
-        $invoices = Invoice::query()->orderByDesc('issued_at')->take(500)->get(['id', 'project_id', 'client_id', 'number', 'total', 'status', 'issued_at'])->map(fn ($invoice) => [
+        $invoices = Invoice::query()->whereYear('issued_at', $year)->orderByDesc('issued_at')->take(500)->get(['id', 'project_id', 'client_id', 'number', 'total', 'status', 'issued_at'])->map(fn ($invoice) => [
             'id' => $invoice->id,
             'project_id' => $invoice->project_id,
             'client_id' => $invoice->client_id,
@@ -218,6 +235,8 @@ class FinanceApiController extends Controller
             'projects' => $projects,
             'installments' => $installments,
             'invoices' => $invoices,
+            'selected_year' => $year,
+            'available_years' => $this->availableYears(),
         ]);
     }
 
@@ -590,5 +609,30 @@ class FinanceApiController extends Controller
         }
 
         return $total;
+    }
+
+    private function selectedYear(Request $request): int
+    {
+        $year = $request->integer('year', now()->year);
+
+        return max(2020, min(now()->year + 5, $year));
+    }
+
+    private function availableYears(): array
+    {
+        return collect([
+            now()->year,
+            ...Invoice::query()->whereNotNull('issued_at')->selectRaw('DISTINCT YEAR(issued_at) as year')->pluck('year')->all(),
+            ...Installment::query()->whereNotNull('paid_at')->selectRaw('DISTINCT YEAR(paid_at) as year')->pluck('year')->all(),
+            ...Project::query()->where('status', 'concluido')->whereNotNull('updated_at')->selectRaw('DISTINCT YEAR(updated_at) as year')->pluck('year')->all(),
+            ...WalletTransaction::query()->whereNotNull('transaction_at')->selectRaw('DISTINCT YEAR(transaction_at) as year')->pluck('year')->all(),
+            ...TerminalPayment::query()->selectRaw('DISTINCT YEAR(COALESCE(paid_at, created_at)) as year')->pluck('year')->all(),
+        ])
+            ->filter(fn ($year) => is_numeric($year))
+            ->map(fn ($year) => (int) $year)
+            ->unique()
+            ->sortDesc()
+            ->values()
+            ->all();
     }
 }

@@ -1,8 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -2864,6 +2867,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   String? _error;
   Map<String, dynamic>? _project;
   final TextEditingController _messageController = TextEditingController();
+  final ImagePicker _imagePicker = ImagePicker();
 
   int get _projectId => (_project?['id'] ?? widget.project['id']) as int? ?? 0;
 
@@ -2928,15 +2932,25 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     }
   }
 
-  Future<void> _sendMessage({String type = 'message', String? body}) async {
+  Future<void> _sendMessage({
+    String type = 'message',
+    String? body,
+    Map<String, dynamic>? attachment,
+  }) async {
     final text = (body ?? _messageController.text).trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty && attachment == null) return;
 
     setState(() => _sending = true);
     try {
       await widget.controller.client.post(
         '/projects/$_projectId/messages',
-        body: {'type': type, 'body': text},
+        body: {
+          'type': type,
+          'body': text.isEmpty ? null : text,
+          ...(attachment == null
+              ? const <String, dynamic>{}
+              : <String, dynamic>{'attachment': attachment}),
+        },
       );
       _messageController.clear();
       await _load();
@@ -2946,6 +2960,82 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  Future<ImageSource?> _pickImageSource() {
+    return showCupertinoModalPopup<ImageSource>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('Selecionar imagem'),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(ImageSource.gallery),
+            child: const Text('Galeria'),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(ImageSource.camera),
+            child: const Text('Câmara'),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+      ),
+    );
+  }
+
+  Future<Map<String, dynamic>?> _pickAttachmentPayload() async {
+    final source = await _pickImageSource();
+    if (source == null) {
+      return null;
+    }
+
+    final file = await _imagePicker.pickImage(
+      source: source,
+      imageQuality: 85,
+      maxWidth: 2200,
+    );
+    if (file == null) {
+      return null;
+    }
+
+    final bytes = await file.readAsBytes();
+    if (bytes.length > 8 * 1024 * 1024) {
+      if (!mounted) return null;
+      await showMessage(
+        context,
+        title: 'Imagem demasiado grande',
+        message: 'A imagem não pode exceder 8 MB.',
+      );
+      return null;
+    }
+
+    final fileName = file.name.isNotEmpty
+        ? file.name
+        : 'prova_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final mimeType = switch (fileName.toLowerCase().split('.').last) {
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'gif' => 'image/gif',
+      'heic' => 'image/heic',
+      _ => 'image/jpeg',
+    };
+
+    return {
+      'filename': fileName,
+      'mime_type': mimeType,
+      'content_base64': base64Encode(bytes),
+    };
+  }
+
+  Future<void> _sendImageMessage({String type = 'message'}) async {
+    final attachment = await _pickAttachmentPayload();
+    if (attachment == null) {
+      return;
+    }
+
+    await _sendMessage(type: type, attachment: attachment);
   }
 
   @override
@@ -3280,17 +3370,27 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                         ),
                       CardSection(
                         title: 'Comunicação',
-                        trailing: CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: _sending
-                              ? null
-                              : () => _sendMessage(
-                                  type: 'proof_request',
-                                  body:
-                                      'Pedido de prova: por favor partilha atualização, captura de ecrã ou vídeo deste ponto do projeto.',
-                                ),
-                          child: const Text('Pedir prova'),
-                        ),
+                        trailing: widget.controller.isClientUser
+                            ? CupertinoButton(
+                                padding: EdgeInsets.zero,
+                                onPressed: _sending
+                                    ? null
+                                    : () => _sendImageMessage(
+                                        type: 'proof_submission',
+                                      ),
+                                child: const Text('Submeter prova'),
+                              )
+                            : CupertinoButton(
+                                padding: EdgeInsets.zero,
+                                onPressed: _sending
+                                    ? null
+                                    : () => _sendMessage(
+                                        type: 'proof_request',
+                                        body:
+                                            'Pedido de prova: por favor partilha atualização, captura de ecrã ou vídeo deste ponto do projeto.',
+                                      ),
+                                child: const Text('Pedir prova'),
+                              ),
                         child: Column(
                           children: [
                             if (messages.isEmpty)
@@ -3315,20 +3415,37 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                             const SizedBox(height: 10),
                             Align(
                               alignment: Alignment.centerRight,
-                              child: CupertinoButton(
-                                color: const Color(0xFF0E4D50),
-                                borderRadius: BorderRadius.circular(14),
-                                onPressed: _sending ? null : _sendMessage,
-                                child: _sending
-                                    ? const CupertinoActivityIndicator(
-                                        color: CupertinoColors.white,
-                                      )
-                                    : const Text(
-                                        'Enviar mensagem',
-                                        style: TextStyle(
-                                          color: CupertinoColors.white,
-                                        ),
-                                      ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CupertinoButton(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    onPressed: _sending
+                                        ? null
+                                        : () => _sendImageMessage(),
+                                    child: const Icon(
+                                      CupertinoIcons.photo_on_rectangle,
+                                    ),
+                                  ),
+                                  CupertinoButton(
+                                    color: const Color(0xFF0E4D50),
+                                    borderRadius: BorderRadius.circular(14),
+                                    onPressed: _sending ? null : _sendMessage,
+                                    child: _sending
+                                        ? const CupertinoActivityIndicator(
+                                            color: CupertinoColors.white,
+                                          )
+                                        : const Text(
+                                            'Enviar mensagem',
+                                            style: TextStyle(
+                                              color: CupertinoColors.white,
+                                            ),
+                                          ),
+                                  ),
+                                ],
                               ),
                             ),
                           ],
@@ -4446,6 +4563,7 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
     final surchargeAmount = _surchargeAmountCents / 100;
     final grossAmount = _grossAmountCents / 100;
     final diagnostics = _terminalService.deviceDiagnostics;
+    final isAndroid = Platform.isAndroid;
 
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
@@ -4520,7 +4638,11 @@ class _TapToPayScreenState extends State<TapToPayScreen> {
                 CardSection(
                   title: 'Diagnóstico local',
                   child: diagnostics == null
-                      ? const Text('A recolher diagnóstico do Android...')
+                      ? Text(
+                          isAndroid
+                              ? 'A recolher diagnóstico do Android...'
+                              : 'O diagnóstico detalhado deste ecrã só está disponível no Android.',
+                        )
                       : Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -5070,6 +5192,8 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
   bool _loading = true;
   String? _error;
   List<dynamic> _invoices = [];
+  DateTime? _issuedFrom;
+  DateTime? _issuedTo;
 
   @override
   void initState() {
@@ -5087,6 +5211,10 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
         'per_page=50',
         if ((widget.initialStatusFilter ?? '').trim().isNotEmpty)
           'status=${Uri.encodeQueryComponent(widget.initialStatusFilter!.trim())}',
+        if (_issuedFrom != null)
+          'issued_from=${Uri.encodeQueryComponent(_dateParam(_issuedFrom!))}',
+        if (_issuedTo != null)
+          'issued_to=${Uri.encodeQueryComponent(_dateParam(_issuedTo!))}',
       ].join('&');
       final result = await widget.controller.client.get('/invoices?$query');
       setState(() => _invoices = result['data'] as List<dynamic>? ?? []);
@@ -5096,6 +5224,110 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String _dateParam(DateTime value) => DateFormat('yyyy-MM-dd').format(value);
+
+  Future<DateTime?> _pickDate({
+    required String title,
+    DateTime? initialDate,
+  }) async {
+    var selected = initialDate ?? DateTime.now();
+    final confirmed = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (context) => Container(
+        height: 320,
+        color: CupertinoColors.systemBackground.resolveFrom(context),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Cancelar'),
+                  ),
+                  Expanded(
+                    child: Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text('Aplicar'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: CupertinoDatePicker(
+                mode: CupertinoDatePickerMode.date,
+                initialDateTime: selected,
+                maximumDate: DateTime.now().add(const Duration(days: 365)),
+                onDateTimeChanged: (value) => selected = value,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return confirmed == true ? selected : null;
+  }
+
+  Future<void> _pickSingleDate() async {
+    final selected = await _pickDate(
+      title: 'Filtrar por data',
+      initialDate: _issuedFrom ?? _issuedTo,
+    );
+    if (selected == null) {
+      return;
+    }
+
+    setState(() {
+      _issuedFrom = selected;
+      _issuedTo = selected;
+    });
+    await _load();
+  }
+
+  Future<void> _pickDateRange() async {
+    final from = await _pickDate(
+      title: 'Data inicial',
+      initialDate: _issuedFrom,
+    );
+    if (from == null) {
+      return;
+    }
+
+    final to = await _pickDate(
+      title: 'Data final',
+      initialDate: _issuedTo ?? from,
+    );
+    if (to == null) {
+      return;
+    }
+
+    final start = from.isBefore(to) ? from : to;
+    final end = from.isBefore(to) ? to : from;
+    setState(() {
+      _issuedFrom = start;
+      _issuedTo = end;
+    });
+    await _load();
+  }
+
+  Future<void> _clearDateFilters() async {
+    setState(() {
+      _issuedFrom = null;
+      _issuedTo = null;
+    });
+    await _load();
   }
 
   Future<void> _openDetails(Map<String, dynamic> invoice) async {
@@ -5135,15 +5367,62 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
             ? const Center(child: CupertinoActivityIndicator(radius: 16))
             : _error != null
             ? ErrorState(message: _error!, onRetry: _load)
-            : _invoices.isEmpty
-            ? const EmptyState('Sem documentos disponíveis.')
             : ListView.builder(
                 physics: const BouncingScrollPhysics(
                   parent: AlwaysScrollableScrollPhysics(),
                 ),
-                itemCount: _invoices.length,
+                itemCount: _invoices.length + 1,
                 itemBuilder: (context, index) {
-                  final invoice = (_invoices[index] as Map)
+                  if (index == 0) {
+                    return CardSection(
+                      title: 'Filtros',
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _issuedFrom == null && _issuedTo == null
+                                ? 'Sem filtro de data.'
+                                : _issuedFrom != null &&
+                                      _issuedTo != null &&
+                                      _dateParam(_issuedFrom!) ==
+                                          _dateParam(_issuedTo!)
+                                ? 'Data: ${formatDate(_issuedFrom)}'
+                                : 'De ${formatDate(_issuedFrom)} até ${formatDate(_issuedTo)}',
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _DocActionButton(
+                                icon: CupertinoIcons.calendar,
+                                label: 'Data única',
+                                onPressed: _pickSingleDate,
+                              ),
+                              _DocActionButton(
+                                icon: CupertinoIcons.calendar_badge_plus,
+                                label: 'Intervalo',
+                                onPressed: _pickDateRange,
+                              ),
+                              _DocActionButton(
+                                icon: CupertinoIcons.clear,
+                                label: 'Limpar',
+                                onPressed: _clearDateFilters,
+                              ),
+                            ],
+                          ),
+                          if (_invoices.isEmpty) ...[
+                            const SizedBox(height: 12),
+                            const Text(
+                              'Sem documentos disponíveis para o filtro atual.',
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }
+
+                  final invoice = (_invoices[index - 1] as Map)
                       .cast<String, dynamic>();
                   final status = invoice['status']?.toString() ?? '—';
                   return _EntityListCard(
@@ -5749,7 +6028,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
   String? _error;
   List<dynamic> _sales = [];
   List<dynamic> _installments = [];
-  List<dynamic> _invoices = [];
+  int _selectedYear = DateTime.now().year;
+  List<int> _availableYears = <int>[];
 
   @override
   void initState() {
@@ -5763,17 +6043,65 @@ class _FinanceScreenState extends State<FinanceScreen> {
       _error = null;
     });
     try {
-      final result = await widget.controller.client.get('/finance');
+      final result = await widget.controller.client.get(
+        '/finance?year=$_selectedYear',
+      );
       final payload = (result['data'] as Map?)?.cast<String, dynamic>() ?? {};
       setState(() {
         _sales = payload['sales'] as List<dynamic>? ?? [];
         _installments = payload['installments'] as List<dynamic>? ?? [];
-        _invoices = payload['invoices'] as List<dynamic>? ?? [];
+        _selectedYear =
+            (payload['selected_year'] as num?)?.toInt() ?? _selectedYear;
+        _availableYears = ((payload['available_years'] as List?) ?? [])
+            .map((item) => (item as num).toInt())
+            .toList();
       });
     } on ApiException catch (error) {
       setState(() => _error = error.message);
     } finally {
       if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _pickFinanceYear() async {
+    final years = _availableYears.isEmpty
+        ? <int>[_selectedYear]
+        : _availableYears;
+    var selected = _selectedYear;
+    final initialIndex = years.indexOf(_selectedYear);
+    final confirmed = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('Selecionar ano'),
+        actions: [
+          SizedBox(
+            height: 220,
+            child: CupertinoPicker(
+              itemExtent: 36,
+              scrollController: FixedExtentScrollController(
+                initialItem: initialIndex < 0 ? 0 : initialIndex,
+              ),
+              onSelectedItemChanged: (index) => selected = years[index],
+              children: [
+                for (final year in years) Center(child: Text(year.toString())),
+              ],
+            ),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        message: CupertinoButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Aplicar'),
+        ),
+      ),
+    );
+
+    if (confirmed == true && selected != _selectedYear) {
+      setState(() => _selectedYear = selected);
+      await _load();
     }
   }
 
@@ -5827,6 +6155,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 children: [
                   CardSection(
                     title: 'Resumo',
+                    trailing: CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _pickFinanceYear,
+                      child: Text(_selectedYear.toString()),
+                    ),
                     child: Wrap(
                       spacing: 10,
                       runSpacing: 10,
@@ -8536,8 +8869,12 @@ class _ProjectMessageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final type = message['type']?.toString() ?? 'message';
     final isMine = message['is_current_user'] == true;
+    final attachment = ((message['meta'] as Map?)?['attachment'] as Map?)
+        ?.cast<String, dynamic>();
+    final attachmentUrl = attachment?['url']?.toString();
     final accent = switch (type) {
       'proof_request' => const Color(0xFFB26A00),
+      'proof_submission' => const Color(0xFF6A1B9A),
       'status_update' => const Color(0xFF1565C0),
       _ => const Color(0xFF0E4D50),
     };
@@ -8573,6 +8910,7 @@ class _ProjectMessageBubble extends StatelessWidget {
                 child: Text(
                   switch (type) {
                     'proof_request' => 'Pedido de prova',
+                    'proof_submission' => 'Prova',
                     'status_update' => 'Estado',
                     _ => 'Mensagem',
                   },
@@ -8586,7 +8924,30 @@ class _ProjectMessageBubble extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text(message['body']?.toString() ?? '—'),
+          if ((message['body']?.toString() ?? '').trim().isNotEmpty)
+            Text(message['body']?.toString() ?? '—'),
+          if (attachmentUrl != null && attachmentUrl.isNotEmpty) ...[
+            if ((message['body']?.toString() ?? '').trim().isNotEmpty)
+              const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.network(
+                attachmentUrl,
+                height: 180,
+                width: double.infinity,
+                fit: BoxFit.cover,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              attachment?['filename']?.toString() ?? 'Imagem anexada',
+              style: const TextStyle(
+                color: Color(0xFF5A7778),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           Text(
             formatDateTime(message['created_at']),

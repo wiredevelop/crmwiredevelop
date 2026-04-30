@@ -137,14 +137,77 @@ const messageForm = useForm({
     body: '',
 })
 const sendingMessage = ref(false)
+const messageAttachment = ref(null)
+const messageAttachmentInput = ref(null)
+
+const resetMessageComposer = () => {
+    messageForm.reset()
+    messageAttachment.value = null
+    if (messageAttachmentInput.value) {
+        messageAttachmentInput.value.value = ''
+    }
+}
+
+const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+        const result = typeof reader.result === 'string'
+            ? reader.result.split(',').pop()
+            : null
+        if (!result) {
+            reject(new Error('Nao foi possível ler a imagem.'))
+            return
+        }
+        resolve(result)
+    }
+    reader.onerror = () => reject(new Error('Nao foi possível ler a imagem.'))
+    reader.readAsDataURL(file)
+})
+
+const openMessageImagePicker = () => {
+    messageAttachmentInput.value?.click()
+}
+
+const handleMessageImageChange = async (event) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+        alert('Só é permitido anexar imagens.')
+        event.target.value = ''
+        return
+    }
+    if (file.size > 8 * 1024 * 1024) {
+        alert('A imagem não pode exceder 8 MB.')
+        event.target.value = ''
+        return
+    }
+
+    try {
+        messageAttachment.value = {
+            filename: file.name,
+            mime_type: file.type,
+            content_base64: await fileToBase64(file),
+            preview_url: URL.createObjectURL(file),
+        }
+    } catch (error) {
+        alert(error?.message || 'Nao foi possível preparar a imagem.')
+    }
+}
 
 const sendProjectMessage = async ({ type = 'message', body = null } = {}) => {
     const payload = {
         type,
         body: (body ?? messageForm.body).trim(),
+        attachment: messageAttachment.value
+            ? {
+                filename: messageAttachment.value.filename,
+                mime_type: messageAttachment.value.mime_type,
+                content_base64: messageAttachment.value.content_base64,
+            }
+            : null,
     }
 
-    if (!payload.body) return
+    if (!payload.body && !payload.attachment) return
 
     sendingMessage.value = true
     try {
@@ -153,7 +216,7 @@ const sendProjectMessage = async ({ type = 'message', body = null } = {}) => {
         if (message) {
             projectMessages.value.push(message)
         }
-        messageForm.reset()
+        resetMessageComposer()
     } catch (error) {
         alert(error?.response?.data?.message || 'Nao foi possível enviar a mensagem.')
     } finally {
@@ -428,17 +491,19 @@ const destroyProject = () => {
             <div class="bg-white p-6 rounded shadow space-y-4">
                 <div class="flex items-center justify-between gap-3">
                     <h2 class="font-semibold text-lg">Comunicação do projeto</h2>
-                    <button
-                        type="button"
-                        class="text-sm border px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-50"
-                        :disabled="sendingMessage"
-                        @click="sendProjectMessage({
-                            type: 'proof_request',
-                            body: 'Pedido de prova: por favor partilha atualização, captura de ecrã ou vídeo deste ponto do projeto.'
-                        })"
-                    >
-                        Pedir prova
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button
+                            type="button"
+                            class="text-sm border px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-50"
+                            :disabled="sendingMessage"
+                            @click="sendProjectMessage({
+                                type: 'proof_request',
+                                body: 'Pedido de prova: por favor partilha atualização, captura de ecrã ou vídeo deste ponto do projeto.'
+                            })"
+                        >
+                            Pedir prova
+                        </button>
+                    </div>
                 </div>
 
                 <div v-if="projectMessages.length" class="space-y-3">
@@ -458,6 +523,16 @@ const destroyProject = () => {
                             </div>
                         </div>
                         <div class="mt-2 whitespace-pre-wrap text-sm text-gray-700">{{ message.body }}</div>
+                        <div v-if="message.meta?.attachment?.url" class="mt-3">
+                            <img
+                                :src="message.meta.attachment.url"
+                                :alt="message.meta.attachment.filename || 'Imagem anexada'"
+                                class="max-h-56 rounded border object-cover"
+                            />
+                            <div class="mt-1 text-xs text-gray-500">
+                                {{ message.meta.attachment.filename || 'Imagem anexada' }}
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -466,6 +541,13 @@ const destroyProject = () => {
                 </div>
 
                 <div class="space-y-3 border-t pt-4">
+                    <input
+                        ref="messageAttachmentInput"
+                        type="file"
+                        accept="image/*"
+                        class="hidden"
+                        @change="handleMessageImageChange"
+                    />
                     <textarea
                         v-model="messageForm.body"
                         rows="4"
@@ -473,11 +555,29 @@ const destroyProject = () => {
                         placeholder="Escreve aqui atualização, pedido ou resposta..."
                     />
 
-                    <div class="flex justify-end">
+                    <div v-if="messageAttachment" class="rounded border bg-gray-50 p-3 text-sm">
+                        <div class="font-medium">{{ messageAttachment.filename }}</div>
+                        <img
+                            v-if="messageAttachment.preview_url"
+                            :src="messageAttachment.preview_url"
+                            alt="Pré-visualização"
+                            class="mt-2 max-h-48 rounded border object-cover"
+                        />
+                    </div>
+
+                    <div class="flex justify-end gap-2">
+                        <button
+                            type="button"
+                            class="border px-4 py-2 rounded hover:bg-gray-50 disabled:opacity-50"
+                            :disabled="sendingMessage"
+                            @click="openMessageImagePicker"
+                        >
+                            Anexar imagem
+                        </button>
                         <button
                             type="button"
                             class="bg-[#015557] text-white px-4 py-2 rounded hover:bg-[#014244] disabled:opacity-50"
-                            :disabled="sendingMessage || !messageForm.body.trim()"
+                            :disabled="sendingMessage || (!messageForm.body.trim() && !messageAttachment)"
                             @click="sendProjectMessage()"
                         >
                             {{ sendingMessage ? 'A enviar...' : 'Enviar mensagem' }}

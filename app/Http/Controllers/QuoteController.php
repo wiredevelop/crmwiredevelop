@@ -17,8 +17,9 @@ class QuoteController extends Controller
 {
     use InteractsWithClientPortalUsers;
 
-    public function index()
+    public function index(Request $request)
     {
+        $year = $this->selectedYear($request);
         $query = Quote::with('project.client')
             ->whereHas('project', function ($query) {
                 $query->whereNotIn('status', ['concluido', 'cancelado']);
@@ -43,6 +44,7 @@ class QuoteController extends Controller
         $adjudicationsTotal = (float) (clone $baseQuery)
             ->whereNotNull('quotes.adjudication_percent')
             ->where('quotes.adjudication_percent', '>', 0)
+            ->whereYear('quotes.adjudication_paid_at', $year)
             ->selectRaw('SUM(COALESCE(quotes.price_development, 0) * (quotes.adjudication_percent / 100)) as total')
             ->value('total');
 
@@ -50,6 +52,7 @@ class QuoteController extends Controller
             ->join('projects', 'projects.id', '=', 'installments.project_id')
             ->leftJoin('invoices', 'invoices.project_id', '=', 'projects.id')
             ->whereNotIn('projects.status', ['concluido', 'cancelado'])
+            ->whereYear('installments.paid_at', $year)
             ->where(function ($query) {
                 $query->whereNull('invoices.id')
                     ->orWhere('invoices.status', '!=', 'pago');
@@ -60,6 +63,7 @@ class QuoteController extends Controller
         $installmentsByProject = Installment::query()
             ->join('projects', 'projects.id', '=', 'installments.project_id')
             ->whereNotIn('projects.status', ['concluido', 'cancelado'])
+            ->whereYear('installments.paid_at', $year)
             ->selectRaw('installments.project_id, SUM(COALESCE(installments.amount, 0)) as total')
             ->groupBy('installments.project_id')
             ->pluck('total', 'installments.project_id');
@@ -71,6 +75,8 @@ class QuoteController extends Controller
             'installmentsTotal' => $installmentsTotal,
             'installmentsByProject' => $installmentsByProject,
             'pipelineTotal' => max(0, $pipelineBaseTotal - $adjudicationsTotal - $installmentsTotal),
+            'selectedYear' => $year,
+            'availableYears' => $this->availableYears(),
         ]);
     }
 
@@ -965,5 +971,27 @@ class QuoteController extends Controller
         ])->setPaper('a4', 'portrait');
 
         return $pdf->stream("Orcamento-{$quote->id}.pdf");
+    }
+
+    private function selectedYear(Request $request): int
+    {
+        $year = $request->integer('year', now()->year);
+
+        return max(2020, min(now()->year + 5, $year));
+    }
+
+    private function availableYears(): array
+    {
+        return collect([
+            now()->year,
+            ...Quote::query()->whereNotNull('adjudication_paid_at')->selectRaw('DISTINCT YEAR(adjudication_paid_at) as year')->pluck('year')->all(),
+            ...Installment::query()->whereNotNull('paid_at')->selectRaw('DISTINCT YEAR(paid_at) as year')->pluck('year')->all(),
+        ])
+            ->filter(fn ($year) => is_numeric($year))
+            ->map(fn ($year) => (int) $year)
+            ->unique()
+            ->sortDesc()
+            ->values()
+            ->all();
     }
 }
