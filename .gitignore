@@ -25,7 +25,11 @@
 /public/hot
 /public/storage
 /storage/*.key
+/storage/app/firebase-service-account.json
 /storage/pail
+/docs/google-services.json
+/docs/GoogleService-Info.plist
+/docs/*firebase-adminsdk*.json
 /flutter_app/android/app/google-services.json
 /flutter_app/ios/Runner/GoogleService-Info.plist
 /vendor
