@@ -1,4 +1,5 @@
 platform :ios, '15.0'
+use_modular_headers!
 
 # Disable CocoaPods analytics to reduce Flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
