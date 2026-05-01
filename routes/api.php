@@ -86,6 +86,9 @@ Route::prefix('v1')->as('api.')->group(function () {
         Route::get('/quotes/{quote}/docx', [QuoteApiController::class, 'docx']);
 
         Route::get('/invoices', [InvoiceApiController::class, 'index']);
+        Route::post('/invoices/checkout', [InvoiceApiController::class, 'checkout']);
+        Route::post('/invoices/checkout/finalize', [InvoiceApiController::class, 'finalizeCheckout']);
+        Route::post('/invoices/checkout/cancel', [InvoiceApiController::class, 'cancelCheckout']);
         Route::get('/invoices/{invoice}', [InvoiceApiController::class, 'show']);
         Route::put('/invoices/{invoice}', [InvoiceApiController::class, 'update']);
         Route::patch('/invoices/{invoice}', [InvoiceApiController::class, 'update']);

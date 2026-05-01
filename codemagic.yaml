@@ -147,6 +147,20 @@ workflows:
           xcode-project use-profiles
       - name: Build signed iOS IPA
         script: |
+          mkdir -p "$PROJECT_DIR/ios/Runner"
+          if [ -n "$FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_B64" ]; then
+            echo "$FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_B64" | base64 --decode > "$PROJECT_DIR/ios/Runner/GoogleService-Info.plist"
+          elif [ -n "$FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST" ]; then
+            printf '%s' "$FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST" > "$PROJECT_DIR/ios/Runner/GoogleService-Info.plist"
+          elif [ ! -f "$PROJECT_DIR/ios/Runner/GoogleService-Info.plist" ]; then
+            printf '%s\n' \
+              '<?xml version="1.0" encoding="UTF-8"?>' \
+              '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+              '<plist version="1.0">' \
+              '<dict/>' \
+              '</plist>' > "$PROJECT_DIR/ios/Runner/GoogleService-Info.plist"
+          fi
+          ls -la "$PROJECT_DIR/ios/Runner/GoogleService-Info.plist"
           cd "$PROJECT_DIR"
           DART_DEFINES=()
           for key in FIREBASE_PROJECT_ID FIREBASE_MESSAGING_SENDER_ID FIREBASE_STORAGE_BUCKET FIREBASE_ANDROID_APP_ID FIREBASE_ANDROID_API_KEY FIREBASE_IOS_APP_ID FIREBASE_IOS_API_KEY FIREBASE_IOS_BUNDLE_ID FIREBASE_IOS_CLIENT_ID; do

@@ -5193,15 +5193,151 @@ class _ProductsScreenState extends State<ProductsScreen> {
   }
 }
 
+Future<void> _cancelPreparedInvoiceCheckout({
+  required AppController controller,
+  String? cancelToken,
+  String? sessionId,
+}) async {
+  final normalizedToken = cancelToken?.trim() ?? '';
+  final normalizedSession = sessionId?.trim() ?? '';
+  if (normalizedToken.isEmpty && normalizedSession.isEmpty) {
+    return;
+  }
+
+  try {
+    await controller.client.post(
+      '/invoices/checkout/cancel',
+      body: {
+        if (normalizedToken.isNotEmpty) 'cancel_token': normalizedToken,
+        if (normalizedSession.isNotEmpty) 'session_id': normalizedSession,
+      },
+    );
+  } catch (_) {}
+}
+
+Future<void> _openInvoiceCheckout({
+  required BuildContext context,
+  required AppController controller,
+  required List<Map<String, dynamic>> invoices,
+}) async {
+  final invoiceIds = invoices
+      .map((invoice) => int.tryParse(invoice['id']?.toString() ?? ''))
+      .whereType<int>()
+      .toList();
+  if (invoiceIds.isEmpty) {
+    return;
+  }
+
+  final result = await controller.client.post(
+    '/invoices/checkout',
+    body: {'invoice_ids': invoiceIds},
+  );
+  final data = (result['data'] as Map).cast<String, dynamic>();
+  final checkoutUrl = data['checkout_url']?.toString() ?? '';
+  final sessionId = data['checkout_session_id']?.toString() ?? '';
+  final cancelToken = data['cancel_token']?.toString() ?? '';
+  final invoiceCount =
+      int.tryParse(data['invoice_count']?.toString() ?? '') ??
+      invoiceIds.length;
+
+  if (!context.mounted) {
+    await _cancelPreparedInvoiceCheckout(
+      controller: controller,
+      cancelToken: cancelToken,
+      sessionId: sessionId,
+    );
+    return;
+  }
+
+  final confirmed = await showCupertinoDialog<bool>(
+    context: context,
+    builder: (dialogContext) => CupertinoAlertDialog(
+      title: Text(invoiceCount == 1 ? 'Pagar documento' : 'Pagar documentos'),
+      content: Padding(
+        padding: const EdgeInsets.only(top: 10),
+        child: Column(
+          children: [
+            Text(
+              invoiceCount == 1
+                  ? 'Será criado um checkout Stripe para este documento.'
+                  : 'Será criado um checkout Stripe único para $invoiceCount documentos.',
+            ),
+            const SizedBox(height: 12),
+            _reviewLine('Subtotal', money(data['requested_amount'])),
+            _reviewLine('Taxa', money(data['surcharge_amount'])),
+            _reviewLine('Total a pagar', money(data['gross_amount'])),
+          ],
+        ),
+      ),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        CupertinoDialogAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('Pagar'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed != true) {
+    await _cancelPreparedInvoiceCheckout(
+      controller: controller,
+      cancelToken: cancelToken,
+      sessionId: sessionId,
+    );
+    return;
+  }
+
+  if (checkoutUrl.isEmpty) {
+    await _cancelPreparedInvoiceCheckout(
+      controller: controller,
+      cancelToken: cancelToken,
+      sessionId: sessionId,
+    );
+    throw ApiException('Não foi possível iniciar o checkout Stripe.');
+  }
+
+  final opened = await launchUrl(
+    Uri.parse(checkoutUrl),
+    mode: LaunchMode.externalApplication,
+  );
+
+  if (!opened) {
+    await _cancelPreparedInvoiceCheckout(
+      controller: controller,
+      cancelToken: cancelToken,
+      sessionId: sessionId,
+    );
+    throw ApiException('Não foi possível abrir o checkout Stripe.');
+  }
+
+  if (!context.mounted) {
+    return;
+  }
+
+  await showMessage(
+    context,
+    title: 'Checkout aberto',
+    message:
+        'O checkout Stripe foi aberto no navegador. Depois de concluir ou cancelar, volte à app para atualizar os documentos.',
+  );
+}
+
 class InvoicesScreen extends StatefulWidget {
   const InvoicesScreen({
     super.key,
     required this.controller,
     this.initialStatusFilter,
+    this.paymentReturn,
   });
 
   final AppController controller;
   final String? initialStatusFilter;
+  final WalletCheckoutReturn? paymentReturn;
 
   @override
   State<InvoicesScreen> createState() => _InvoicesScreenState();
@@ -5209,22 +5345,35 @@ class InvoicesScreen extends StatefulWidget {
 
 class _InvoicesScreenState extends State<InvoicesScreen> {
   bool _loading = true;
+  bool _paymentLoading = false;
   String? _error;
   List<dynamic> _invoices = [];
   DateTime? _issuedFrom;
   DateTime? _issuedTo;
+  bool _handledPaymentReturn = false;
 
   @override
   void initState() {
     super.initState();
-    _load();
+    if (widget.paymentReturn != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_handlePaymentReturn(widget.paymentReturn!));
+      });
+    } else {
+      _load();
+    }
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  Future<void> _load({bool showLoading = true}) async {
+    if (showLoading) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    } else {
+      setState(() => _error = null);
+    }
+
     try {
       final query = <String>[
         'per_page=50',
@@ -5243,6 +5392,56 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  Future<void> _handlePaymentReturn(WalletCheckoutReturn paymentReturn) async {
+    if (_handledPaymentReturn) {
+      return;
+    }
+
+    _handledPaymentReturn = true;
+    String title;
+    String message;
+
+    try {
+      if (paymentReturn.isSuccess) {
+        if ((paymentReturn.sessionId ?? '').isNotEmpty) {
+          await widget.controller.client.post(
+            '/invoices/checkout/finalize',
+            body: {'session_id': paymentReturn.sessionId},
+          );
+        }
+        title = 'Pagamento concluído';
+        message = 'Os documentos foram atualizados com o pagamento Stripe.';
+      } else {
+        await widget.controller.client.post(
+          '/invoices/checkout/cancel',
+          body: {
+            if ((paymentReturn.token ?? '').isNotEmpty)
+              'cancel_token': paymentReturn.token,
+            if ((paymentReturn.sessionId ?? '').isNotEmpty)
+              'session_id': paymentReturn.sessionId,
+          },
+        );
+        title = 'Pagamento cancelado';
+        message =
+            'O checkout foi cancelado e os documentos foram sincronizados.';
+      }
+    } catch (_) {
+      title = paymentReturn.isSuccess
+          ? 'Pagamento recebido'
+          : 'Pagamento cancelado';
+      message = paymentReturn.isSuccess
+          ? 'Foi pedido um novo refresh dos documentos para confirmar o estado.'
+          : 'Foi pedido um novo refresh dos documentos para limpar a operação pendente.';
+    }
+
+    await _load(showLoading: false);
+    if (!mounted) {
+      return;
+    }
+
+    await showMessage(context, title: title, message: message);
   }
 
   String _dateParam(DateTime value) => DateFormat('yyyy-MM-dd').format(value);
@@ -5370,6 +5569,45 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
     }
   }
 
+  List<Map<String, dynamic>> get _payableInvoices => _invoices
+      .map((item) => (item as Map).cast<String, dynamic>())
+      .where(
+        (invoice) =>
+            (invoice['status']?.toString() ?? '') == 'pendente' &&
+            !_hasPendingInvoiceCheckout(invoice),
+      )
+      .toList();
+
+  bool _hasPendingInvoiceCheckout(Map<String, dynamic> invoice) {
+    final payment = (invoice['payment_metadata'] as Map?)
+        ?.cast<String, dynamic>();
+    return invoice['payment_provider']?.toString() == 'stripe' &&
+        payment?['status']?.toString() == 'pending';
+  }
+
+  Future<void> _startBulkCheckout() async {
+    if (_paymentLoading || _payableInvoices.isEmpty) {
+      return;
+    }
+
+    setState(() => _paymentLoading = true);
+    try {
+      await _openInvoiceCheckout(
+        context: context,
+        controller: widget.controller,
+        invoices: _payableInvoices,
+      );
+      await _load(showLoading: false);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    } finally {
+      if (mounted) {
+        setState(() => _paymentLoading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return CupertinoPageScaffold(
@@ -5413,6 +5651,15 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                             spacing: 8,
                             runSpacing: 8,
                             children: [
+                              if (widget.controller.isClientUser &&
+                                  _payableInvoices.isNotEmpty)
+                                _DocActionButton(
+                                  icon: CupertinoIcons.creditcard,
+                                  label: _paymentLoading
+                                      ? 'A preparar...'
+                                      : 'Pagar todos',
+                                  onPressed: _startBulkCheckout,
+                                ),
                               _DocActionButton(
                                 icon: CupertinoIcons.calendar,
                                 label: 'Data única',
@@ -5444,12 +5691,13 @@ class _InvoicesScreenState extends State<InvoicesScreen> {
                   final invoice = (_invoices[index - 1] as Map)
                       .cast<String, dynamic>();
                   final status = invoice['status']?.toString() ?? '—';
+                  final pendingCheckout = _hasPendingInvoiceCheckout(invoice);
                   return _EntityListCard(
                     title: invoice['number']?.toString() ?? 'Documento',
                     subtitle:
                         '${invoice['client']?['name'] ?? '—'} · ${money(invoice['total'])}',
                     metaLines: [
-                      'Estado: $status',
+                      'Estado: ${pendingCheckout ? 'checkout pendente' : status}',
                       'Emissão: ${formatDate(invoice['issued_at'])}',
                     ],
                     onTap: () => _openDetails(invoice),
@@ -5493,6 +5741,7 @@ class InvoiceDetailScreen extends StatefulWidget {
 class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   bool _loading = true;
   bool _actionLoading = false;
+  bool _paymentLoading = false;
   String? _error;
   Map<String, dynamic>? _invoice;
   final Set<int> _expandedInvoiceItemIds = <int>{};
@@ -5528,6 +5777,37 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
   }
 
   bool get _canManageInvoice => !widget.controller.isClientUser;
+
+  bool get _hasPendingCheckout {
+    final payment = (_invoice?['payment_metadata'] as Map?)
+        ?.cast<String, dynamic>();
+    return _invoice?['payment_provider']?.toString() == 'stripe' &&
+        payment?['status']?.toString() == 'pending';
+  }
+
+  Future<void> _payInvoice() async {
+    final invoice = _invoice;
+    if (invoice == null || _paymentLoading) {
+      return;
+    }
+
+    setState(() => _paymentLoading = true);
+    try {
+      await _openInvoiceCheckout(
+        context: context,
+        controller: widget.controller,
+        invoices: [invoice],
+      );
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    } finally {
+      if (mounted) {
+        setState(() => _paymentLoading = false);
+      }
+    }
+  }
 
   Future<void> _markPaid() async {
     if (_actionLoading) {
@@ -6008,6 +6288,16 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
                                 '/documents/invoices/${widget.invoiceId}/pdf',
                               ),
                             ),
+                            if (!_canManageInvoice &&
+                                !isPaid &&
+                                !_hasPendingCheckout)
+                              _DocActionButton(
+                                icon: CupertinoIcons.creditcard,
+                                label: _paymentLoading
+                                    ? 'A preparar...'
+                                    : 'Pagar',
+                                onPressed: _payInvoice,
+                              ),
                             if (_canManageInvoice && !isPaid)
                               _DocActionButton(
                                 icon: CupertinoIcons.check_mark_circled,

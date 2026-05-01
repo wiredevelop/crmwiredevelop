@@ -9,9 +9,11 @@ use App\Http\Resources\Api\InvoiceResource;
 use App\Models\Invoice;
 use App\Models\WalletTransaction;
 use App\Support\CompanySettings;
+use App\Support\StripeCheckoutService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class InvoiceApiController extends Controller
@@ -21,6 +23,13 @@ class InvoiceApiController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        if ($this->isClientUser()) {
+            $client = $request->user()?->client;
+            if ($client && config('services.stripe.secret_key') && config('services.stripe.public_key')) {
+                app(StripeCheckoutService::class)->syncPendingForClient($client);
+            }
+        }
+
         $query = $this->scopeByClient(Invoice::with(['client', 'project']));
 
         if ($request->client) {
@@ -64,6 +73,120 @@ class InvoiceApiController extends Controller
             'sort' => $request->sort,
             'direction' => $request->direction,
         ]);
+    }
+
+    public function checkout(Request $request, StripeCheckoutService $stripeCheckout): JsonResponse
+    {
+        abort_unless($this->isClientUser(), 403);
+
+        $data = $request->validate([
+            'invoice_ids' => ['required', 'array', 'min:1', 'max:50'],
+            'invoice_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+
+        $client = $request->user()?->client;
+        abort_if(! $client, 403);
+
+        if (! config('services.stripe.secret_key') || ! config('services.stripe.public_key')) {
+            return $this->error('Checkout Stripe indisponível de momento.', [], 503);
+        }
+
+        $invoices = Invoice::query()
+            ->where('client_id', $client->id)
+            ->whereIn('id', $data['invoice_ids'])
+            ->get();
+
+        if ($invoices->count() !== count($data['invoice_ids'])) {
+            return $this->error('Existem documentos inválidos na seleção.', [], 422);
+        }
+
+        if ($invoices->contains(fn (Invoice $invoice) => $invoice->status !== 'pendente')) {
+            return $this->error('Só podes pagar documentos pendentes.', [], 422);
+        }
+
+        $successUrl = url('/checkout/stripe/sucesso?source=mobile_app&target=invoices&session_id={CHECKOUT_SESSION_ID}');
+        $cancelUrl = url('/checkout/stripe/cancelado?source=mobile_app&target=invoices');
+
+        $checkout = $stripeCheckout->createPendingInvoiceCheckout(
+            $client,
+            $invoices,
+            $successUrl,
+            $cancelUrl,
+        );
+
+        return $this->success([
+            'checkout_session_id' => $checkout['session']->id,
+            'checkout_url' => $checkout['session']->url,
+            'cancel_token' => $checkout['cancel_token'],
+            'invoice_ids' => collect($checkout['invoices'])->pluck('id')->all(),
+            'invoice_count' => $checkout['invoice_count'],
+            'requested_amount' => $checkout['requested_amount'],
+            'surcharge_amount' => $checkout['surcharge_amount'],
+            'gross_amount' => $checkout['gross_amount'],
+            'currency' => 'eur',
+        ], 'Checkout Stripe preparado para os documentos selecionados.');
+    }
+
+    public function finalizeCheckout(Request $request, StripeCheckoutService $stripeCheckout): JsonResponse
+    {
+        abort_unless($this->isClientUser(), 403);
+
+        $data = $request->validate([
+            'session_id' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $client = $request->user()?->client;
+        abort_if(! $client, 403);
+
+        $sessionId = $data['session_id'] ?? null;
+        if ($sessionId) {
+            $stripeCheckout->syncCheckoutSession($sessionId);
+        }
+
+        $stripeCheckout->syncPendingForClient($client);
+
+        $invoices = $sessionId
+            ? Invoice::query()
+                ->where('client_id', $client->id)
+                ->where('payment_reference', $sessionId)
+                ->get()
+            : new Collection();
+
+        $paidCount = $invoices->where('status', 'pago')->count();
+        $status = 'missing';
+        if ($invoices->isNotEmpty()) {
+            $status = $paidCount === $invoices->count() ? 'paid' : 'pending';
+        }
+
+        return $this->success([
+            'status' => $status,
+            'invoice_ids' => $invoices->pluck('id')->all(),
+            'paid_count' => $paidCount,
+        ], 'Pagamento sincronizado.');
+    }
+
+    public function cancelCheckout(Request $request, StripeCheckoutService $stripeCheckout): JsonResponse
+    {
+        abort_unless($this->isClientUser(), 403);
+
+        $data = $request->validate([
+            'session_id' => ['nullable', 'string', 'max:255'],
+            'cancel_token' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        if (! empty($data['cancel_token'])) {
+            $stripeCheckout->cancelByToken($data['cancel_token']);
+        } elseif (! empty($data['session_id'])) {
+            $stripeCheckout->syncCheckoutSession($data['session_id']);
+            $invoice = Invoice::query()
+                ->where('payment_reference', $data['session_id'])
+                ->first();
+            if ($invoice) {
+                $stripeCheckout->cancelByToken((string) data_get($invoice->payment_metadata, 'cancel_token'));
+            }
+        }
+
+        return $this->success([], 'Pagamento cancelado e documentos sincronizados.');
     }
 
     public function show(Invoice $invoice): JsonResponse
@@ -194,6 +317,9 @@ class InvoiceApiController extends Controller
         $invoice->update([
             'status' => 'pendente',
             'paid_at' => null,
+            'payment_provider' => null,
+            'payment_reference' => null,
+            'payment_metadata' => null,
         ]);
 
         return $this->success([

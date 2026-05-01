@@ -18,7 +18,7 @@ class StripeCheckoutStatusController extends Controller
 
         return view('stripe-checkout-status', [
             'title' => 'Pagamento concluído',
-            'message' => 'O pagamento foi concluído. A carteira será atualizada ao regressar.',
+            'message' => 'O pagamento foi concluído. O estado será sincronizado ao regressar à app.',
             'status' => 'success',
             'appUrl' => $this->appRedirectUrl(
                 $request,
@@ -41,7 +41,7 @@ class StripeCheckoutStatusController extends Controller
 
         return view('stripe-checkout-status', [
             'title' => 'Pagamento cancelado',
-            'message' => 'O checkout foi cancelado. Pode regressar à app ou à carteira.',
+            'message' => 'O checkout foi cancelado. Pode regressar à app.',
             'status' => 'cancel',
             'appUrl' => $this->appRedirectUrl(
                 $request,
@@ -73,6 +73,14 @@ class StripeCheckoutStatusController extends Controller
     {
         if (! $request->user()?->client) {
             return null;
+        }
+
+        if ($request->query('target') === 'invoices') {
+            return route('invoices.index', array_filter([
+                'stripe_status' => $status,
+                'session_id' => $sessionId !== '' ? $sessionId : null,
+                'token' => $token,
+            ], fn ($value) => $value !== null && $value !== ''));
         }
 
         return route('wallet.show', array_filter([

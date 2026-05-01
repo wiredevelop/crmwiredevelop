@@ -131,10 +131,19 @@ class _WireCrmAppState extends State<WireCrmApp> {
 
       navigator.push(
         CupertinoPageRoute(
-          builder: (context) => ClientWalletScreen(
-            controller: widget.controller,
-            paymentReturn: paymentReturn,
-          ),
+          builder: (context) {
+            if (paymentReturn.target == 'invoices') {
+              return InvoicesScreen(
+                controller: widget.controller,
+                paymentReturn: paymentReturn,
+              );
+            }
+
+            return ClientWalletScreen(
+              controller: widget.controller,
+              paymentReturn: paymentReturn,
+            );
+          },
         ),
       );
     });

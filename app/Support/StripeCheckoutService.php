@@ -10,6 +10,7 @@ use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Support\WalletPackPurchaseService;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Stripe\Checkout\Session;
@@ -22,6 +23,7 @@ class StripeCheckoutService
 {
     public function __construct(
         private readonly WalletPackPurchaseService $packPurchaseService,
+        private readonly StripeTerminalService $stripeTerminalService,
     ) {
     }
 
@@ -263,6 +265,168 @@ class StripeCheckoutService
         ]);
     }
 
+    public function createPendingInvoiceCheckout(
+        Client $client,
+        iterable $invoices,
+        string $successUrl,
+        string $cancelBaseUrl
+    ): array {
+        return DB::transaction(function () use ($client, $invoices, $successUrl, $cancelBaseUrl) {
+            $invoiceIds = collect($invoices)
+                ->map(fn ($invoice) => (int) ($invoice instanceof Invoice ? $invoice->id : $invoice))
+                ->filter(fn ($id) => $id > 0)
+                ->unique()
+                ->values();
+
+            $lockedInvoices = Invoice::query()
+                ->where('client_id', $client->id)
+                ->whereIn('id', $invoiceIds)
+                ->lockForUpdate()
+                ->get();
+
+            if ($lockedInvoices->count() !== $invoiceIds->count()) {
+                abort(422, 'Existem documentos inválidos na seleção.');
+            }
+
+            if ($lockedInvoices->contains(fn (Invoice $invoice) => $invoice->status !== 'pendente')) {
+                abort(422, 'Só podes pagar documentos pendentes.');
+            }
+
+            if ($lockedInvoices->contains(fn (Invoice $invoice) => data_get($invoice->payment_metadata, 'status') === 'pending')) {
+                abort(422, 'Já existe um checkout pendente para pelo menos um dos documentos selecionados.');
+            }
+
+            $requestedAmountCents = $lockedInvoices->sum(
+                fn (Invoice $invoice) => (int) round(((float) $invoice->total) * 100)
+            );
+
+            if ($requestedAmountCents <= 0) {
+                abort(422, 'O valor total dos documentos selecionados é inválido.');
+            }
+
+            $grossAmountCents = $this->stripeTerminalService->calculateGrossAmountCents($requestedAmountCents);
+            $surchargeAmountCents = max(0, $grossAmountCents - $requestedAmountCents);
+            $cancelToken = (string) Str::uuid();
+
+            $session = $this->createInvoiceCheckoutSession(
+                $client,
+                $lockedInvoices,
+                $requestedAmountCents,
+                $grossAmountCents,
+                $surchargeAmountCents,
+                $successUrl,
+                $cancelBaseUrl.(str_contains($cancelBaseUrl, '?') ? '&' : '?').'token='.$cancelToken,
+                ['cancel_token' => $cancelToken],
+            );
+
+            $metadata = [
+                'status' => 'pending',
+                'payment_type' => 'invoice_checkout',
+                'cancel_token' => $cancelToken,
+                'invoice_ids' => $lockedInvoices->pluck('id')->all(),
+                'invoice_count' => $lockedInvoices->count(),
+                'requested_amount' => round($requestedAmountCents / 100, 2),
+                'gross_amount' => round($grossAmountCents / 100, 2),
+                'surcharge_amount' => round($surchargeAmountCents / 100, 2),
+                'surcharge_percent' => $this->stripeTerminalService->surchargePercent(),
+                'surcharge_fixed' => $this->stripeTerminalService->surchargeFixed(),
+            ];
+
+            foreach ($lockedInvoices as $invoice) {
+                $invoice->forceFill([
+                    'payment_provider' => 'stripe',
+                    'payment_reference' => $session->id,
+                    'payment_metadata' => $metadata,
+                ])->save();
+            }
+
+            return [
+                'session' => $session,
+                'invoices' => $lockedInvoices->fresh(),
+                'cancel_token' => $cancelToken,
+                'requested_amount' => round($requestedAmountCents / 100, 2),
+                'gross_amount' => round($grossAmountCents / 100, 2),
+                'surcharge_amount' => round($surchargeAmountCents / 100, 2),
+                'invoice_count' => $lockedInvoices->count(),
+            ];
+        });
+    }
+
+    public function createInvoiceCheckoutSession(
+        Client $client,
+        Collection $invoices,
+        int $requestedAmountCents,
+        int $grossAmountCents,
+        int $surchargeAmountCents,
+        string $successUrl,
+        string $cancelUrl,
+        array $metadata = []
+    ): Session {
+        $stripe = $this->client();
+        $customer = $this->ensureCustomer($stripe, $client);
+
+        $lineItems = $invoices
+            ->sortBy('issued_at')
+            ->map(function (Invoice $invoice) use ($client) {
+                return [
+                    'quantity' => 1,
+                    'price_data' => [
+                        'currency' => 'eur',
+                        'unit_amount' => (int) round(((float) $invoice->total) * 100),
+                        'product_data' => [
+                            'name' => 'Fatura '.$invoice->number,
+                            'metadata' => [
+                                'client_id' => (string) $client->id,
+                                'invoice_id' => (string) $invoice->id,
+                                'invoice_number' => (string) $invoice->number,
+                            ],
+                        ],
+                    ],
+                ];
+            })
+            ->values()
+            ->all();
+
+        if ($surchargeAmountCents > 0) {
+            $lineItems[] = [
+                'quantity' => 1,
+                'price_data' => [
+                    'currency' => 'eur',
+                    'unit_amount' => $surchargeAmountCents,
+                    'product_data' => [
+                        'name' => 'Taxa de pagamento',
+                        'description' => 'Sobretaxa configurada no CRM',
+                    ],
+                ],
+            ];
+        }
+
+        return $stripe->checkout->sessions->create([
+            'mode' => 'payment',
+            'customer' => $customer->id,
+            'success_url' => $successUrl,
+            'cancel_url' => $cancelUrl,
+            'billing_address_collection' => 'required',
+            'tax_id_collection' => ['enabled' => true],
+            'customer_update' => [
+                'name' => 'auto',
+                'address' => 'auto',
+            ],
+            'line_items' => $lineItems,
+            'metadata' => [
+                'client_id' => (string) $client->id,
+                'invoice_ids' => $invoices->pluck('id')->implode(','),
+                'invoice_numbers' => $invoices->pluck('number')->implode(','),
+                'invoice_count' => (string) $invoices->count(),
+                'requested_amount_cents' => (string) $requestedAmountCents,
+                'gross_amount_cents' => (string) $grossAmountCents,
+                'surcharge_amount_cents' => (string) $surchargeAmountCents,
+                'source' => 'flutter_invoices',
+                ...$metadata,
+            ],
+        ]);
+    }
+
     public function syncPendingForClient(Client $client): void
     {
         if (! $this->isConfigured()) {
@@ -278,6 +442,19 @@ class StripeCheckoutService
         foreach ($transactions as $transaction) {
             $this->syncPendingTransaction($transaction);
         }
+
+        $references = Invoice::query()
+            ->where('client_id', $client->id)
+            ->where('payment_provider', 'stripe')
+            ->where('payment_metadata->status', 'pending')
+            ->whereNotNull('payment_reference')
+            ->pluck('payment_reference')
+            ->filter()
+            ->unique();
+
+        foreach ($references as $reference) {
+            $this->syncPendingInvoiceReference((string) $reference);
+        }
     }
 
     public function syncCheckoutSession(string $sessionId): void
@@ -285,7 +462,10 @@ class StripeCheckoutService
         $transaction = WalletTransaction::where('payment_reference', $sessionId)->first();
         if ($transaction) {
             $this->syncPendingTransaction($transaction);
+            return;
         }
+
+        $this->syncPendingInvoiceReference($sessionId);
     }
 
     public function syncPaymentIntent(string $paymentIntentId): void
@@ -304,6 +484,7 @@ class StripeCheckoutService
             ->first();
 
         if (! $transaction) {
+            $this->cleanupPendingInvoicesByToken($token, true);
             return;
         }
 
@@ -332,18 +513,28 @@ class StripeCheckoutService
         }
 
         $transaction = WalletTransaction::where('payment_reference', $reference)->first();
-        if (! $transaction) {
+        if ($transaction) {
+            if (in_array($eventType, ['checkout.session.completed', 'checkout.session.async_payment_succeeded'], true)
+                && ($session['payment_status'] ?? null) === 'paid') {
+                $this->markPendingTransactionPaid($transaction, $session);
+                return;
+            }
+
+            if (in_array($eventType, ['checkout.session.expired', 'checkout.session.async_payment_failed'], true)) {
+                $this->cleanupPendingTransaction($transaction, false);
+            }
+
             return;
         }
 
         if (in_array($eventType, ['checkout.session.completed', 'checkout.session.async_payment_succeeded'], true)
             && ($session['payment_status'] ?? null) === 'paid') {
-            $this->markPendingTransactionPaid($transaction, $session);
+            $this->markPendingInvoicesPaidByReference($reference, $session);
             return;
         }
 
         if (in_array($eventType, ['checkout.session.expired', 'checkout.session.async_payment_failed'], true)) {
-            $this->cleanupPendingTransaction($transaction, false);
+            $this->cleanupPendingInvoicesByReference($reference, false);
         }
     }
 
@@ -449,6 +640,32 @@ class StripeCheckoutService
 
         if ($status === 'expired') {
             $this->cleanupPendingTransaction($transaction, false);
+        }
+    }
+
+    private function syncPendingInvoiceReference(string $reference): void
+    {
+        if ($reference === '') {
+            return;
+        }
+
+        $invoices = $this->pendingInvoicesByReference($reference);
+        if ($invoices->isEmpty()) {
+            return;
+        }
+
+        $session = $this->client()->checkout->sessions->retrieve($reference, []);
+        $data = $session->toArray();
+        $status = $data['status'] ?? null;
+        $paymentStatus = $data['payment_status'] ?? null;
+
+        if ($status === 'complete' && $paymentStatus === 'paid') {
+            $this->markPendingInvoicesPaid($invoices, $data);
+            return;
+        }
+
+        if ($status === 'expired') {
+            $this->cleanupPendingInvoices($invoices, false);
         }
     }
 
@@ -610,6 +827,140 @@ class StripeCheckoutService
             }
 
             $transaction->delete();
+        });
+    }
+
+    private function pendingInvoicesByReference(string $reference): Collection
+    {
+        return Invoice::query()
+            ->where('payment_provider', 'stripe')
+            ->where('payment_reference', $reference)
+            ->where('payment_metadata->status', 'pending')
+            ->get();
+    }
+
+    private function pendingInvoicesByToken(string $token): Collection
+    {
+        return Invoice::query()
+            ->where('payment_provider', 'stripe')
+            ->where('payment_metadata->cancel_token', $token)
+            ->where('payment_metadata->status', 'pending')
+            ->get();
+    }
+
+    private function markPendingInvoicesPaidByReference(string $reference, array $session): void
+    {
+        $invoices = $this->pendingInvoicesByReference($reference);
+        if ($invoices->isEmpty()) {
+            return;
+        }
+
+        $this->markPendingInvoicesPaid($invoices, $session);
+    }
+
+    private function markPendingInvoicesPaid(Collection $invoices, array $session): void
+    {
+        $firstInvoice = $invoices->first();
+        if (! $firstInvoice instanceof Invoice) {
+            return;
+        }
+
+        $client = Client::find($firstInvoice->client_id);
+        if (! $client) {
+            return;
+        }
+
+        DB::transaction(function () use ($invoices, $session, $client) {
+            $billing = $this->syncBillingProfile($client, $session);
+            $wantsInvoice = ! empty($billing['billing_vat']);
+
+            foreach ($invoices as $invoice) {
+                $metadata = is_array($invoice->payment_metadata) ? $invoice->payment_metadata : [];
+                if (($metadata['status'] ?? null) === 'paid') {
+                    continue;
+                }
+
+                $invoice->forceFill([
+                    'status' => 'pago',
+                    'paid_at' => now(),
+                    'payment_method' => 'Stripe Checkout',
+                    'payment_account' => $wantsInvoice
+                        ? 'Documento com NIF solicitado'
+                        : 'Sem pedido de documento com NIF',
+                    'payment_provider' => 'stripe',
+                    'payment_reference' => $session['id'] ?? $invoice->payment_reference,
+                    'payment_metadata' => array_merge($metadata, [
+                        'status' => 'paid',
+                        'billing' => $billing,
+                        'customer' => $session['customer'] ?? null,
+                        'payment_intent' => $session['payment_intent'] ?? null,
+                        'customer_details' => $session['customer_details'] ?? null,
+                    ]),
+                ])->save();
+            }
+        });
+    }
+
+    private function cleanupPendingInvoicesByReference(string $reference, bool $expireRemoteIntent): void
+    {
+        $invoices = $this->pendingInvoicesByReference($reference);
+        if ($invoices->isEmpty()) {
+            return;
+        }
+
+        $this->cleanupPendingInvoices($invoices, $expireRemoteIntent);
+    }
+
+    private function cleanupPendingInvoicesByToken(string $token, bool $expireRemoteIntent): void
+    {
+        $invoices = $this->pendingInvoicesByToken($token);
+        if ($invoices->isEmpty()) {
+            return;
+        }
+
+        $this->cleanupPendingInvoices($invoices, $expireRemoteIntent);
+    }
+
+    private function cleanupPendingInvoices(Collection $invoices, bool $expireRemoteIntent): void
+    {
+        $firstInvoice = $invoices->first();
+        if (! $firstInvoice instanceof Invoice) {
+            return;
+        }
+
+        $metadata = is_array($firstInvoice->payment_metadata) ? $firstInvoice->payment_metadata : [];
+        if (($metadata['status'] ?? null) === 'paid') {
+            return;
+        }
+
+        $reference = (string) ($firstInvoice->payment_reference ?? '');
+
+        if ($reference !== '') {
+            $session = $this->client()->checkout->sessions->retrieve($reference, []);
+            if (($session->status ?? null) === 'complete' && ($session->payment_status ?? null) === 'paid') {
+                $this->markPendingInvoicesPaid($invoices, $session->toArray());
+                return;
+            }
+
+            if (! $expireRemoteIntent) {
+                $session = null;
+            }
+        }
+
+        if ($expireRemoteIntent && $reference !== '' && isset($session)) {
+            if (($session->status ?? null) === 'open') {
+                $this->client()->checkout->sessions->expire($reference, []);
+            }
+        }
+
+        DB::transaction(function () use ($invoices) {
+            foreach ($invoices as $invoice) {
+                $invoice->forceFill([
+                    'payment_provider' => null,
+                    'payment_reference' => null,
+                    'payment_metadata' => null,
+                ])->save();
+            }
         });
     }
 
