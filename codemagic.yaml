@@ -82,6 +82,56 @@ workflows:
       - flutter_app/build/**/outputs/**/*.aab
       - flutter_app/build/**/reports/**/*.html
 
+  wire-crm-ios-simulator:
+    name: Wire CRM iOS Simulator (Screenshots)
+    max_build_duration: 30
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - appstore_credentials
+      vars:
+        PROJECT_DIR: flutter_app
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+        - $PROJECT_DIR/.dart_tool
+    scripts:
+      - name: Install Firebase config files
+        script: |
+          if [ -n "$FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_B64" ]; then
+            echo "$FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST_B64" | base64 --decode > "$PROJECT_DIR/ios/Runner/GoogleService-Info.plist"
+          elif [ -n "$FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST" ]; then
+            printf '%s' "$FIREBASE_IOS_GOOGLE_SERVICE_INFO_PLIST" > "$PROJECT_DIR/ios/Runner/GoogleService-Info.plist"
+          else
+            printf '%s\n' \
+              '<?xml version="1.0" encoding="UTF-8"?>' \
+              '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+              '<plist version="1.0">' \
+              '<dict/>' \
+              '</plist>' > "$PROJECT_DIR/ios/Runner/GoogleService-Info.plist"
+          fi
+      - name: Install Flutter dependencies
+        script: |
+          cd "$PROJECT_DIR"
+          flutter pub get
+      - name: Install CocoaPods dependencies
+        script: |
+          cd "$PROJECT_DIR/ios"
+          rm -rf Pods Podfile.lock .symlinks
+          pod install
+      - name: Build iOS Simulator app
+        script: |
+          cd "$PROJECT_DIR"
+          flutter build ios --simulator --debug
+          cd build/ios/iphonesimulator
+          zip -r Runner.app.zip Runner.app
+    artifacts:
+      - flutter_app/build/ios/iphonesimulator/Runner.app.zip
+
   wire-crm-ios:
     name: Wire CRM iOS
     max_build_duration: 60
