@@ -10303,7 +10303,7 @@ class _SparkyScreenState extends State<SparkyScreen> {
     _scrollToBottom();
 
     try {
-      final result = await widget.controller.api.post(
+      final result = await widget.controller.client.post(
         '/api/v1/sparky/ask',
         body: {'question': question, 'history': _history},
       );
