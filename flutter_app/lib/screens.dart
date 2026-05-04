@@ -4196,6 +4196,11 @@ class MoreModulesScreen extends StatelessWidget {
           ]
         : [
             (
+              'Sparky ⚡',
+              CupertinoIcons.bolt_fill,
+              SparkyScreen(controller: controller),
+            ),
+            (
               'Orçamentos',
               CupertinoIcons.doc_text_search,
               QuotesScreen(controller: controller),
@@ -10258,6 +10263,207 @@ class _SimpleList extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+// ─── SPARKY SCREEN ────────────────────────────────────────────────────────────
+
+class SparkyScreen extends StatefulWidget {
+  const SparkyScreen({super.key, required this.controller});
+  final AppController controller;
+
+  @override
+  State<SparkyScreen> createState() => _SparkyScreenState();
+}
+
+class _SparkyScreenState extends State<SparkyScreen> {
+  final _controller = TextEditingController();
+  final _scrollController = ScrollController();
+  bool _loading = false;
+
+  final List<Map<String, String>> _messages = [
+    {
+      'role': 'assistant',
+      'content': 'Olá! Sou o Sparky ⚡ O teu assistente do WireDevelop CRM. Em que posso ajudar?',
+    },
+  ];
+
+  final List<Map<String, String>> _history = [];
+
+  Future<void> _send() async {
+    final question = _controller.text.trim();
+    if (question.isEmpty || _loading) return;
+
+    setState(() {
+      _messages.add({'role': 'user', 'content': question});
+      _loading = true;
+    });
+    _controller.clear();
+    _scrollToBottom();
+
+    try {
+      final result = await widget.controller.api.post(
+        '/api/v1/sparky/ask',
+        body: {'question': question, 'history': _history},
+      );
+      final answer = result['answer'] as String? ?? 'Sem resposta.';
+      setState(() {
+        _messages.add({'role': 'assistant', 'content': answer});
+        _history.add({'role': 'user', 'content': question});
+        _history.add({'role': 'assistant', 'content': answer});
+        if (_history.length > 40) {
+          _history.removeRange(0, _history.length - 40);
+        }
+      });
+    } catch (e) {
+      setState(() {
+        _messages.add({'role': 'assistant', 'content': 'Erro: ${e.toString()}'});
+      });
+    } finally {
+      setState(() => _loading = false);
+      _scrollToBottom();
+    }
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoPageScaffold(
+      navigationBar: const CupertinoNavigationBar(
+        middle: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('⚡ Sparky'),
+          ],
+        ),
+        backgroundColor: Color(0xFF015557),
+        brightness: Brightness.dark,
+      ),
+      child: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                itemCount: _messages.length + (_loading ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (_loading && index == _messages.length) {
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: CupertinoColors.systemGrey6,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: const CupertinoActivityIndicator(),
+                      ),
+                    );
+                  }
+                  final msg = _messages[index];
+                  final isUser = msg['role'] == 'user';
+                  return Align(
+                    alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      constraints: BoxConstraints(
+                        maxWidth: MediaQuery.of(context).size.width * 0.78,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isUser
+                            ? const Color(0xFF015557)
+                            : CupertinoColors.systemGrey6,
+                        borderRadius: BorderRadius.only(
+                          topLeft: const Radius.circular(16),
+                          topRight: const Radius.circular(16),
+                          bottomLeft: isUser ? const Radius.circular(16) : const Radius.circular(4),
+                          bottomRight: isUser ? const Radius.circular(4) : const Radius.circular(16),
+                        ),
+                      ),
+                      child: Text(
+                        msg['content'] ?? '',
+                        style: TextStyle(
+                          color: isUser ? CupertinoColors.white : CupertinoColors.label,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            Container(
+              decoration: BoxDecoration(
+                color: CupertinoColors.systemBackground,
+                border: Border(
+                  top: BorderSide(color: CupertinoColors.systemGrey4, width: 0.5),
+                ),
+              ),
+              padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: CupertinoTextField(
+                      controller: _controller,
+                      placeholder: 'Pergunta ao Sparky...',
+                      minLines: 1,
+                      maxLines: 4,
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: CupertinoColors.systemGrey6,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      onSubmitted: (_) => _send(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _loading ? null : _send,
+                    child: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: _loading
+                            ? CupertinoColors.systemGrey
+                            : const Color(0xFF015557),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        CupertinoIcons.arrow_up,
+                        color: CupertinoColors.white,
+                        size: 20,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

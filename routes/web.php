@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\SparkyController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\ClientCredentialController;
 use App\Http\Controllers\ClientCredentialObjectController;
@@ -188,6 +189,11 @@ Route::middleware(['auth', 'force.password.change'])->group(function () {
     Route::post('/wallets/packs/stripe', [WalletPackController::class, 'checkoutStripe'])
         ->middleware('admin.only')
         ->name('wallets.packs.stripe');
+
+    // Sparky AI
+    Route::post('/sparky/ask', [SparkyController::class, 'ask'])
+        ->middleware('admin.only')
+        ->name('sparky.ask');
 });
 
 require __DIR__.'/auth.php';

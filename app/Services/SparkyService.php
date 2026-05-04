@@ -60,17 +60,29 @@ class SparkyService
                 'pago_em' => $i->paid_at?->format('d/m/Y'),
             ]);
 
-        $projects = Project::with('client:id,name')
-            ->select('id', 'client_id', 'name', 'type', 'status')
+        $projects = Project::with(['client:id,name', 'quote', 'installments'])
+            ->select('id', 'client_id', 'name', 'type', 'status', 'quote_id')
             ->orderByDesc('created_at')
             ->limit(200)
             ->get()
-            ->map(fn($p) => [
-                'nome' => $p->name,
-                'cliente' => $p->client?->name ?? '—',
-                'tipo' => $p->type,
-                'estado' => $p->status,
-            ]);
+            ->map(function ($p) {
+                $q = $p->quote;
+                $baseAmount = (float) ($q?->price_development ?? 0);
+                $adjPercent = (float) ($q?->adjudication_percent ?? 0);
+                $adjValue = $baseAmount * ($adjPercent / 100);
+                $installmentsTotal = $p->installments->sum('amount');
+                $remaining = $baseAmount > 0 ? max(0, $baseAmount - $adjValue - $installmentsTotal) : null;
+
+                return [
+                    'nome' => $p->name,
+                    'cliente' => $p->client?->name ?? '—',
+                    'tipo' => $p->type,
+                    'estado' => $p->status,
+                    'orcamento' => $baseAmount > 0 ? number_format($baseAmount, 2, ',', '.') . '€' : '—',
+                    'parcelas_pagas' => number_format($installmentsTotal + $adjValue, 2, ',', '.') . '€',
+                    'valor_em_falta' => $remaining !== null ? number_format($remaining, 2, ',', '.') . '€' : '—',
+                ];
+            });
 
         $wallets = Wallet::with('client:id,name')
             ->select('id', 'client_id', 'balance_amount', 'balance_seconds')
@@ -107,7 +119,7 @@ class SparkyService
         )->join("\n");
 
         $projectList = collect($context['projects'])->map(fn($p) =>
-            "- {$p['nome']} | {$p['cliente']} | Tipo: {$p['tipo']} | Estado: {$p['estado']}"
+            "- {$p['nome']} | {$p['cliente']} | Tipo: {$p['tipo']} | Estado: {$p['estado']} | Orçamento: {$p['orcamento']} | Já pago: {$p['parcelas_pagas']} | Valor em falta: {$p['valor_em_falta']}"
         )->join("\n");
 
         $walletList = collect($context['wallets'])->map(fn($w) =>
@@ -123,13 +135,19 @@ class SparkyService
         return <<<PROMPT
         És o Sparky, o assistente de IA do WireDevelop CRM. Respondes sempre em português europeu.
         És direto, inteligente e útil. Quando te fazem perguntas sobre dados do CRM, respondes com base nos dados abaixo.
-        Nunca inventas dados. Se não encontrares a informação, diz que não encontraste.
-        Formata as respostas de forma clara — usa listas quando faz sentido.
+
+        REGRAS IMPORTANTES:
+        - Nunca inventas dados. Só usas o que está nos dados abaixo.
+        - Quando listares faturas ou registos de um cliente, PERCORRE TODOS os dados e não omites nenhum.
+        - Conta sempre o número exato de registos encontrados antes de responder.
+        - Os totais devem ser calculados somando TODOS os valores encontrados, sem excepção.
+        - Usa listas simples (com travessão) para apresentar resultados. Não uses tabelas markdown.
+        - Responde de forma concisa e direta.
 
         === CLIENTES ===
         {$clientList}
 
-        === FATURAS (mais recentes) ===
+        === FATURAS ===
         {$invoiceList}
 
         === PROJETOS ===

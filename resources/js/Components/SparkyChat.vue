@@ -27,7 +27,7 @@ async function send() {
     await scrollBottom()
 
     try {
-        const { data } = await axios.post('/api/v1/sparky/ask', {
+        const { data } = await axios.post('/sparky/ask', {
             question: q,
             history: history.value,
         })
@@ -39,8 +39,10 @@ async function send() {
         if (history.value.length > 40) {
             history.value = history.value.slice(-40)
         }
-    } catch {
-        messages.value.push({ role: 'assistant', content: 'Ocorreu um erro. Tenta novamente.' })
+    } catch (err) {
+        const status = err?.response?.status
+        const detail = err?.response?.data?.error || err?.response?.data?.message || err?.message || 'Erro desconhecido'
+        messages.value.push({ role: 'assistant', content: `Erro ${status ?? ''}: ${detail}` })
     } finally {
         loading.value = false
         await scrollBottom()
@@ -62,12 +64,30 @@ async function scrollBottom() {
 }
 
 function formatMessage(text) {
+    // Converter tabelas markdown em listas legíveis
+    text = text.replace(/^\|(.+)\|$/gm, (_, row) => {
+        const cells = row.split('|').map(c => c.trim()).filter(c => c && !/^[-:]+$/.test(c))
+        if (!cells.length) return ''
+        return '— ' + cells.join(' · ')
+    })
+
+    // Headings
+    text = text.replace(/^#{1,3} (.+)$/gm, '<strong>$1</strong>')
+
+    // Bold e italic
+    text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    text = text.replace(/\*(.*?)\*/g, '<em>$1</em>')
+
+    // Listas com traço ou travessão
+    text = text.replace(/^[—\-] (.+)$/gm, '<li>$1</li>')
+    text = text.replace(/(<li>[\s\S]*?<\/li>(\n|$))+/g, match =>
+        `<ul class="list-none mt-1 space-y-0.5 pl-1">${match}</ul>`
+    )
+
+    // Quebras de linha
+    text = text.replace(/\n/g, '<br>')
+
     return text
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        .replace(/\*(.*?)\*/g, '<em>$1</em>')
-        .replace(/^- (.+)$/gm, '<li>$1</li>')
-        .replace(/(<li>.*<\/li>)/gs, '<ul class="list-disc list-inside mt-1 space-y-0.5">$1</ul>')
-        .replace(/\n/g, '<br>')
 }
 
 watch(open, async (val) => {
