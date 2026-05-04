@@ -17,6 +17,10 @@ return Application::configure(basePath: dirname(__DIR__))
             \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
         ]);
 
+        $middleware->api(append: [
+            \App\Http\Middleware\LogApiRequests::class,
+        ]);
+
         $middleware->alias([
             'doc.token' => \App\Http\Middleware\AuthenticateDocumentToken::class,
             'admin.only' => \App\Http\Middleware\EnsureAdminUser::class,

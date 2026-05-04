@@ -1,10 +1,12 @@
 <script setup>
 import { Link, usePage } from '@inertiajs/vue3'
 import { ref } from 'vue'
+import SparkyChat from '@/Components/SparkyChat.vue'
 
 const user = usePage().props.auth?.user
 const sidebarOpen = ref(false)
 const isClientUser = user?.role === 'client'
+const isAdminUser = user?.role === 'admin'
 </script>
 
 <template>
@@ -76,4 +78,6 @@ const isClientUser = user?.role === 'client'
             </div>
         </div>
     </div>
+
+    <SparkyChat v-if="isAdminUser" />
 </template>

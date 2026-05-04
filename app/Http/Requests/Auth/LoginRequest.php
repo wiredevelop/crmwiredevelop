@@ -5,6 +5,7 @@ namespace App\Http\Requests\Auth;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -66,6 +67,16 @@ class LoginRequest extends FormRequest
         event(new Lockout($this));
 
         $seconds = RateLimiter::availableIn($this->throttleKey());
+
+        Log::warning('API login rate limited.', [
+            'request_id' => $this->attributes->get('request_id'),
+            'email' => $this->string('email')->toString(),
+            'ip' => $this->ip(),
+            'host' => $this->getHost(),
+            'path' => $this->path(),
+            'user_agent' => $this->userAgent(),
+            'seconds_remaining' => $seconds,
+        ]);
 
         throw ValidationException::withMessages([
             'email' => trans('auth.throttle', [

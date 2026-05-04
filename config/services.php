@@ -36,6 +36,10 @@ return [
     ],
 
 
+    'anthropic' => [
+        'key' => env('ANTHROPIC_API_KEY'),
+    ],
+
     'code_server' => [
         'service' => env('CODE_SERVER_SERVICE', 'code-server@root'),
         'systemctl' => env('CODE_SERVER_SYSTEMCTL', 'systemctl'),

@@ -33,6 +33,7 @@ class AuthController extends Controller
             RateLimiter::hit($request->throttleKey());
 
             Log::warning('API login failed.', [
+                'request_id' => $request->attributes->get('request_id'),
                 'email' => $data['email'],
                 'ip' => $request->ip(),
                 'host' => $request->getHost(),
@@ -52,6 +53,7 @@ class AuthController extends Controller
         $token = $user->createToken($data['device_name'] ?? 'flutter-app')->plainTextToken;
 
         Log::info('API login succeeded.', [
+            'request_id' => $request->attributes->get('request_id'),
             'user_id' => $user->id,
             'email' => $user->email,
             'ip' => $request->ip(),
