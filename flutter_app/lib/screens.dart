@@ -10304,7 +10304,7 @@ class _SparkyScreenState extends State<SparkyScreen> {
 
     try {
       final result = await widget.controller.client.post(
-        '/api/v1/sparky/ask',
+        '/sparky/ask',
         body: {'question': question, 'history': _history},
       );
       final answer = result['answer'] as String? ?? 'Sem resposta.';
