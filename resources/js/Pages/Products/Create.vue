@@ -7,6 +7,7 @@ const form = useForm({
     type: 'product',
     name: '',
     price: '',                // só usado em product
+    is_monthly_recurring: false,
     short_description: '',
     content_html: '',
 
@@ -70,6 +71,10 @@ const addInfoField = () => {
             <div v-if="form.type === 'product'">
                 <label class="block text-sm font-medium mb-1">Preço</label>
                 <input v-model="form.price" type="number" step="0.01" class="w-full border rounded p-2" />
+                <label class="mt-3 flex items-center gap-2 text-sm">
+                    <input type="checkbox" v-model="form.is_monthly_recurring" />
+                    Recorrência mensal
+                </label>
             </div>
 
             <!-- DESCRIÇÃO CURTA -->

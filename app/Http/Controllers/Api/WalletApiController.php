@@ -16,6 +16,7 @@ use App\Models\Wallet;
 use App\Models\WalletTransaction;
 use App\Support\StripeCheckoutService;
 use App\Support\WalletPackPurchaseService;
+use App\Support\WalletProductPurchaseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -75,6 +76,17 @@ class WalletApiController extends Controller
                     'featured' => (bool) $item->featured,
                 ])->toArray(),
             ]);
+        $products = Product::query()
+            ->where('type', 'product')
+            ->where('active', true)
+            ->orderBy('name')
+            ->get()
+            ->map(fn ($product) => [
+                'id' => $product->id,
+                'name' => $product->name,
+                'price' => $product->price,
+                'is_monthly_recurring' => (bool) $product->is_monthly_recurring,
+            ]);
 
         if ($selectedClientId) {
             $selectedClient = Client::find($selectedClientId);
@@ -94,6 +106,7 @@ class WalletApiController extends Controller
             'wallet' => $wallet ? new WalletResource($wallet) : null,
             'transactions' => WalletTransactionResource::collection($transactions),
             'packs' => $packs,
+            'products' => $products,
         ]);
     }
 
@@ -249,5 +262,30 @@ class WalletApiController extends Controller
         return $this->success([
             'transaction' => new WalletTransactionResource($transaction),
         ], 'Compra manual registada e documento pendente criado.', 201);
+    }
+
+    public function storeProduct(Request $request, WalletProductPurchaseService $purchaseService): JsonResponse
+    {
+        $data = $request->validate([
+            'client_id' => ['required', 'exists:clients,id'],
+            'product_id' => ['required', 'exists:products,id'],
+            'quantity' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $quantity = $data['quantity'] ?? 1;
+        $product = Product::where('type', 'product')->findOrFail($data['product_id']);
+
+        if ($product->price === null || (float) $product->price <= 0) {
+            return $this->error('O produto precisa de preço para ser registado.', [], 422);
+        }
+
+        $client = Client::findOrFail($data['client_id']);
+        $transaction = $purchaseService
+            ->registerManualPurchase($client, $product, $quantity)['transaction'];
+        $transaction->load(['product:id,name,type,price,is_monthly_recurring', 'invoice:id,number,status']);
+
+        return $this->success([
+            'transaction' => new WalletTransactionResource($transaction),
+        ], 'Compra manual de produto registada e documento pendente criado.', 201);
     }
 }

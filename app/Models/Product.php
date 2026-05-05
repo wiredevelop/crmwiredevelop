@@ -14,8 +14,15 @@ class Product extends Model
         'short_description',
         'content_html',
         'price',
+        'is_monthly_recurring',
         'active',
         'show_payment_methods',
+    ];
+
+    protected $casts = [
+        'is_monthly_recurring' => 'boolean',
+        'active' => 'boolean',
+        'show_payment_methods' => 'boolean',
     ];
 
     protected static function booted()

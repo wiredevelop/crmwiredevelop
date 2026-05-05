@@ -126,6 +126,7 @@ Route::prefix('v1')->as('api.')->group(function () {
         Route::post('/wallets/transactions', [WalletApiController::class, 'storeTransaction'])->middleware('admin.only');
         Route::delete('/wallets/transactions/{transaction}', [WalletApiController::class, 'destroyTransaction'])->middleware('admin.only');
         Route::post('/wallets/packs', [WalletApiController::class, 'storePack'])->middleware('admin.only');
+        Route::post('/wallets/products', [WalletApiController::class, 'storeProduct'])->middleware('admin.only');
 
         Route::post('/sparky/ask', [SparkyController::class, 'ask'])->middleware('admin.only');
     });

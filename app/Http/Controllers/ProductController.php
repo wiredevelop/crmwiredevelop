@@ -36,6 +36,7 @@ class ProductController extends Controller
             'type' => 'required|in:product,pack',
             'name' => 'required|string|max:255',
             'price' => 'nullable|numeric',
+            'is_monthly_recurring' => 'nullable|boolean',
             'short_description' => 'nullable|string',
             'content_html' => 'nullable|string',
             'pack_items' => 'array',
@@ -53,6 +54,7 @@ class ProductController extends Controller
         // Packs não têm price direto
         if ($data['type'] === 'pack') {
             $data['price'] = null;
+            $data['is_monthly_recurring'] = false;
         }
 
         $product = Product::create([
@@ -62,6 +64,7 @@ class ProductController extends Controller
             'short_description' => $data['short_description'] ?? null,
             'content_html' => $data['content_html'] ?? null,
             'price' => $data['price'] ?? null,
+            'is_monthly_recurring' => (bool) ($data['is_monthly_recurring'] ?? false),
             'active' => true,
         ]);
 
@@ -116,6 +119,7 @@ class ProductController extends Controller
                 'type' => $product->type,
                 'name' => $product->name,
                 'price' => $product->price,
+                'is_monthly_recurring' => (bool) $product->is_monthly_recurring,
                 'short_description' => $product->short_description,
                 'content_html' => $product->content_html,
 
@@ -143,6 +147,7 @@ class ProductController extends Controller
             'type' => 'required|in:product,pack',
             'name' => 'required|string|max:255',
             'price' => 'nullable|numeric',
+            'is_monthly_recurring' => 'nullable|boolean',
             'short_description' => 'nullable|string',
             'content_html' => 'nullable|string',
             'pack_items' => 'array',
@@ -160,6 +165,7 @@ class ProductController extends Controller
         // Packs não têm price direto
         if ($data['type'] === 'pack') {
             $data['price'] = null;
+            $data['is_monthly_recurring'] = false;
         }
 
         $product->update([
@@ -169,6 +175,7 @@ class ProductController extends Controller
             'short_description' => $data['short_description'] ?? null,
             'content_html' => $data['content_html'] ?? null,
             'price' => $data['price'] ?? null,
+            'is_monthly_recurring' => (bool) ($data['is_monthly_recurring'] ?? false),
         ]);
 
         // regravar pack items

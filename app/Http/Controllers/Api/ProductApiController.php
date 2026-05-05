@@ -99,6 +99,7 @@ class ProductApiController extends Controller
             'type' => 'required|in:product,pack',
             'name' => 'required|string|max:255',
             'price' => 'nullable|numeric',
+            'is_monthly_recurring' => 'nullable|boolean',
             'short_description' => 'nullable|string',
             'content_html' => 'nullable|string',
             'pack_items' => 'array',
@@ -115,6 +116,7 @@ class ProductApiController extends Controller
 
         if ($data['type'] === 'pack') {
             $data['price'] = null;
+            $data['is_monthly_recurring'] = false;
         }
 
         if (! $product) {
@@ -125,6 +127,7 @@ class ProductApiController extends Controller
                 'short_description' => $data['short_description'] ?? null,
                 'content_html' => $data['content_html'] ?? null,
                 'price' => $data['price'] ?? null,
+                'is_monthly_recurring' => (bool) ($data['is_monthly_recurring'] ?? false),
                 'active' => true,
             ]);
         } else {
@@ -135,6 +138,7 @@ class ProductApiController extends Controller
                 'short_description' => $data['short_description'] ?? null,
                 'content_html' => $data['content_html'] ?? null,
                 'price' => $data['price'] ?? null,
+                'is_monthly_recurring' => (bool) ($data['is_monthly_recurring'] ?? false),
             ]);
 
             PackItem::where('product_id', $product->id)->delete();

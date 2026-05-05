@@ -11,6 +11,7 @@ const form = useForm({
     type: props.product.type ?? 'product',
     name: props.product.name ?? '',
     price: props.product.price ?? '',
+    is_monthly_recurring: props.product.is_monthly_recurring ?? false,
     short_description: props.product.short_description ?? '',
     content_html: props.product.content_html ?? '',
     pack_items: props.product.pack_items ?? [],
@@ -101,6 +102,10 @@ const destroyThis = () => {
             <div v-if="form.type === 'product'">
                 <label class="block text-sm font-medium mb-1">Preço</label>
                 <input v-model="form.price" type="number" step="0.01" class="w-full border rounded p-2" />
+                <label class="mt-3 flex items-center gap-2 text-sm">
+                    <input type="checkbox" v-model="form.is_monthly_recurring" />
+                    Recorrência mensal
+                </label>
             </div>
 
             <!-- DESCRIÇÃO CURTA -->

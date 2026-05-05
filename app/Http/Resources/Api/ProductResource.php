@@ -17,6 +17,7 @@ class ProductResource extends JsonResource
             'short_description' => $this->short_description,
             'content_html' => $this->content_html,
             'price' => $this->price,
+            'is_monthly_recurring' => (bool) $this->is_monthly_recurring,
             'active' => (bool) $this->active,
             'show_payment_methods' => (bool) $this->show_payment_methods,
             'meta' => ProductMetaResource::collection($this->whenLoaded('meta')),

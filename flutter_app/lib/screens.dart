@@ -6339,6 +6339,7 @@ class _InvoiceDetailScreenState extends State<InvoiceDetailScreen> {
 
 class _FinanceScreenState extends State<FinanceScreen> {
   bool _loading = true;
+  bool _bulkInvoicing = false;
   String? _error;
   List<dynamic> _sales = [];
   List<dynamic> _installments = [];
@@ -6416,6 +6417,227 @@ class _FinanceScreenState extends State<FinanceScreen> {
     if (confirmed == true && selected != _selectedYear) {
       setState(() => _selectedYear = selected);
       await _load();
+    }
+  }
+
+  String _saleSource(Map<String, dynamic> sale) {
+    final source = sale['source']?.toString();
+    if (source == 'project' ||
+        source == 'transaction' ||
+        source == 'terminal') {
+      return source!;
+    }
+
+    return sale['type']?.toString() == 'Projeto' ? 'project' : 'transaction';
+  }
+
+  String _saleKey(Map<String, dynamic> sale) {
+    return '${_saleSource(sale)}-${sale['id']}';
+  }
+
+  bool _saleIsPackIntervention(Map<String, dynamic> sale) {
+    final intervention = (sale['intervention'] as Map?)
+        ?.cast<String, dynamic>();
+    return intervention?['is_pack'] == true;
+  }
+
+  bool _saleCanInvoice(Map<String, dynamic> sale) {
+    if (_saleSource(sale) == 'terminal') {
+      return false;
+    }
+
+    if (_saleIsPackIntervention(sale)) {
+      return false;
+    }
+
+    return !_financeSaleHasDocument(sale);
+  }
+
+  List<Map<String, dynamic>> get _invoiceCandidates => _sales
+      .map((item) => (item as Map).cast<String, dynamic>())
+      .where(_saleCanInvoice)
+      .toList();
+
+  Future<void> _openBulkInvoiceSelector() async {
+    if (_bulkInvoicing) {
+      return;
+    }
+
+    final candidates = _invoiceCandidates;
+    if (candidates.isEmpty) {
+      await showMessage(
+        context,
+        title: 'Sem itens',
+        message: 'Não há intervenções ou produtos por faturar.',
+      );
+      return;
+    }
+
+    final selectedKeys = await showCupertinoModalPopup<Set<String>>(
+      context: context,
+      builder: (context) {
+        final selected = <String>{};
+
+        return StatefulBuilder(
+          builder: (context, setModalState) => Container(
+            height: MediaQuery.of(context).size.height * 0.78,
+            decoration: BoxDecoration(
+              color: CupertinoColors.systemBackground.resolveFrom(context),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(22),
+              ),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+                    child: Row(
+                      children: [
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Cancelar'),
+                        ),
+                        const Expanded(
+                          child: Text(
+                            'Selecionar para faturar',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: selected.isEmpty
+                              ? null
+                              : () => Navigator.of(context).pop(selected),
+                          child: const Text('Faturar'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: candidates.length,
+                      itemBuilder: (context, index) {
+                        final sale = candidates[index];
+                        final key = _saleKey(sale);
+                        final isSelected = selected.contains(key);
+                        return CupertinoButton(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 10,
+                          ),
+                          onPressed: () {
+                            setModalState(() {
+                              if (isSelected) {
+                                selected.remove(key);
+                              } else {
+                                selected.add(key);
+                              }
+                            });
+                          },
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                isSelected
+                                    ? CupertinoIcons.check_mark_circled_solid
+                                    : CupertinoIcons.circle,
+                                color: isSelected
+                                    ? const Color(0xFF0E4D50)
+                                    : const Color(0xFF90A4AE),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      sale['description']?.toString() ?? '—',
+                                      style: const TextStyle(
+                                        color: Color(0xFF0C3E42),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 3),
+                                    Text(
+                                      '${sale['client'] ?? '—'} · ${sale['type'] ?? '—'} · ${formatDate(sale['date'])}',
+                                      style: const TextStyle(
+                                        color: Color(0xFF47696B),
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                money(sale['amount']),
+                                style: const TextStyle(
+                                  color: Color(0xFF0D4B4F),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (selectedKeys == null || selectedKeys.isEmpty) {
+      return;
+    }
+
+    await _bulkInvoiceSelected(selectedKeys);
+  }
+
+  Future<void> _bulkInvoiceSelected(Set<String> selectedKeys) async {
+    final items = _invoiceCandidates
+        .where((sale) => selectedKeys.contains(_saleKey(sale)))
+        .map(
+          (sale) => {
+            'source': _saleSource(sale),
+            'id': int.tryParse(sale['id']?.toString() ?? ''),
+          },
+        )
+        .where((item) => item['id'] != null)
+        .map((item) => {'source': item['source'], 'id': item['id']})
+        .toList();
+
+    if (items.isEmpty) {
+      return;
+    }
+
+    setState(() => _bulkInvoicing = true);
+    try {
+      await widget.controller.client.post(
+        '/finance/sales/bulk-invoice',
+        body: {'items': items},
+      );
+      await _load();
+      if (!mounted) return;
+      await showMessage(
+        context,
+        title: 'Faturado',
+        message: 'Os itens selecionados foram faturados.',
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    } finally {
+      if (mounted) {
+        setState(() => _bulkInvoicing = false);
+      }
     }
   }
 
@@ -6510,6 +6732,32 @@ class _FinanceScreenState extends State<FinanceScreen> {
                         ),
                       ],
                     ),
+                  ),
+                  CardSection(
+                    title: 'Faturação',
+                    child: _invoiceCandidates.isEmpty
+                        ? const Text(
+                            'Sem intervenções ou produtos por faturar.',
+                          )
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${_invoiceCandidates.length} item(ns) disponível(eis) para faturar.',
+                              ),
+                              const SizedBox(height: 10),
+                              CupertinoButton.filled(
+                                onPressed: _bulkInvoicing
+                                    ? null
+                                    : _openBulkInvoiceSelector,
+                                child: Text(
+                                  _bulkInvoicing
+                                      ? 'A faturar...'
+                                      : 'Selecionar e faturar',
+                                ),
+                              ),
+                            ],
+                          ),
                   ),
                   CardSection(
                     title: 'Movimentos recentes',
@@ -7409,9 +7657,12 @@ class _WalletsScreenState extends State<WalletsScreen> {
   Map<String, dynamic>? _wallet;
   List<dynamic> _transactions = [];
   List<dynamic> _packs = [];
+  List<dynamic> _products = [];
   String? _selectedClientId;
+  String _purchaseMode = 'pack';
   String? _packProductId;
   String? _packItemId;
+  String? _selectedProductId;
   final TextEditingController _packQuantityController = TextEditingController(
     text: '1',
   );
@@ -7445,6 +7696,7 @@ class _WalletsScreenState extends State<WalletsScreen> {
       final data = (result['data'] as Map).cast<String, dynamic>();
       final clients = data['clients'] as List<dynamic>? ?? [];
       final packs = data['packs'] as List<dynamic>? ?? [];
+      final products = data['products'] as List<dynamic>? ?? [];
       final selectedClientId = data['selected_client_id']?.toString();
 
       setState(() {
@@ -7459,11 +7711,16 @@ class _WalletsScreenState extends State<WalletsScreen> {
             ? []
             : data['transactions'] as List<dynamic>? ?? [];
         _packs = packs;
+        _products = products;
         _selectedClientId = _selectedClientId ?? selectedClientId;
         if (_packProductId == null && packs.isNotEmpty) {
           _packProductId = (packs.first as Map)['id'].toString();
         }
+        if (_selectedProductId == null && products.isNotEmpty) {
+          _selectedProductId = (products.first as Map)['id'].toString();
+        }
         _syncPackItemSelection();
+        _syncProductSelection();
       });
       unawaited(widget.controller.refreshWidgetData());
     } on ApiException catch (error) {
@@ -7478,6 +7735,9 @@ class _WalletsScreenState extends State<WalletsScreen> {
 
   List<Map<String, dynamic>> get _packProducts =>
       _packs.map((item) => (item as Map).cast<String, dynamic>()).toList();
+
+  List<Map<String, dynamic>> get _productList =>
+      _products.map((item) => (item as Map).cast<String, dynamic>()).toList();
 
   List<Map<String, dynamic>> get _selectedPackItems {
     final product = _packProducts.firstWhere(
@@ -7498,6 +7758,20 @@ class _WalletsScreenState extends State<WalletsScreen> {
     final exists = items.any((item) => item['id']?.toString() == _packItemId);
     if (!exists) {
       _packItemId = items.first['id']?.toString();
+    }
+  }
+
+  void _syncProductSelection() {
+    if (_productList.isEmpty) {
+      _selectedProductId = null;
+      return;
+    }
+
+    final exists = _productList.any(
+      (item) => item['id']?.toString() == _selectedProductId,
+    );
+    if (!exists) {
+      _selectedProductId = _productList.first['id']?.toString();
     }
   }
 
@@ -7567,6 +7841,19 @@ class _WalletsScreenState extends State<WalletsScreen> {
     if (item.isEmpty) return 'Selecionar opção';
     return '${item['hours']}h · ${moneyOrDash(item['pack_price'])} · ${item['validity_months']} meses';
   }
+
+  Map<String, dynamic>? get _selectedProduct {
+    for (final item in _productList) {
+      if (item['id']?.toString() == _selectedProductId) {
+        return item;
+      }
+    }
+
+    return null;
+  }
+
+  String get _selectedProductLabel =>
+      _selectedProduct?['name']?.toString() ?? 'Selecionar produto';
 
   Future<void> _pickWalletPackProduct() async {
     if (_packProducts.isEmpty) return;
@@ -7659,6 +7946,48 @@ class _WalletsScreenState extends State<WalletsScreen> {
     }
   }
 
+  Future<void> _pickWalletProduct() async {
+    if (_productList.isEmpty) return;
+    var selected = _selectedProductId ?? _productList.first['id'].toString();
+    final confirmed = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('Selecionar produto'),
+        actions: [
+          SizedBox(
+            height: 220,
+            child: CupertinoPicker(
+              itemExtent: 40,
+              scrollController: FixedExtentScrollController(
+                initialItem: _productList
+                    .indexWhere((item) => item['id']?.toString() == selected)
+                    .clamp(0, _productList.length - 1),
+              ),
+              onSelectedItemChanged: (index) {
+                selected = _productList[index]['id'].toString();
+              },
+              children: [
+                for (final option in _productList)
+                  Center(child: Text(option['name']?.toString() ?? 'Produto')),
+              ],
+            ),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        message: CupertinoButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Selecionar'),
+        ),
+      ),
+    );
+    if (confirmed == true) {
+      setState(() => _selectedProductId = selected);
+    }
+  }
+
   Future<void> _buyPack() async {
     if (_selectedClientId == null ||
         _packProductId == null ||
@@ -7673,6 +8002,28 @@ class _WalletsScreenState extends State<WalletsScreen> {
           'client_id': int.parse(_selectedClientId!),
           'product_id': int.parse(_packProductId!),
           'pack_item_id': int.parse(_packItemId!),
+          'quantity': int.tryParse(_packQuantityController.text.trim()) ?? 1,
+        },
+      );
+      _packQuantityController.text = '1';
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    }
+  }
+
+  Future<void> _buyProduct() async {
+    if (_selectedClientId == null || _selectedProductId == null) {
+      return;
+    }
+
+    try {
+      await widget.controller.client.post(
+        '/wallets/products',
+        body: {
+          'client_id': int.parse(_selectedClientId!),
+          'product_id': int.parse(_selectedProductId!),
           'quantity': int.tryParse(_packQuantityController.text.trim()) ?? 1,
         },
       );
@@ -7783,22 +8134,55 @@ class _WalletsScreenState extends State<WalletsScreen> {
                     ),
                   if (_wallet != null)
                     CardSection(
-                      title: 'Compra de pack',
+                      title: 'Compra',
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          _selectorField(
-                            label: 'Pack',
-                            value: _selectedPackProductLabel,
-                            onTap: _pickWalletPackProduct,
+                          CupertinoSlidingSegmentedControl<String>(
+                            groupValue: _purchaseMode,
+                            children: const {
+                              'pack': Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8),
+                                child: Text('Pack'),
+                              ),
+                              'product': Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 8),
+                                child: Text('Produto'),
+                              ),
+                            },
+                            onValueChanged: (value) {
+                              if (value == null) return;
+                              setState(() => _purchaseMode = value);
+                            },
                           ),
-                          _selectorField(
-                            label: 'Opção',
-                            value: _selectedPackItemLabel,
-                            onTap: _pickWalletPackItem,
-                          ),
+                          const SizedBox(height: 12),
+                          if (_purchaseMode == 'pack' &&
+                              _packProducts.isEmpty) ...[
+                            const Text('Sem packs disponíveis.'),
+                          ] else if (_purchaseMode == 'product' &&
+                              _productList.isEmpty) ...[
+                            const Text('Sem produtos disponíveis.'),
+                          ] else if (_purchaseMode == 'pack') ...[
+                            _selectorField(
+                              label: 'Pack',
+                              value: _selectedPackProductLabel,
+                              onTap: _pickWalletPackProduct,
+                            ),
+                            _selectorField(
+                              label: 'Opção',
+                              value: _selectedPackItemLabel,
+                              onTap: _pickWalletPackItem,
+                            ),
+                          ] else ...[
+                            _selectorField(
+                              label: 'Produto',
+                              value: _selectedProductLabel,
+                              onTap: _pickWalletProduct,
+                            ),
+                          ],
                           _field('Quantidade', _packQuantityController),
-                          if (_selectedPackItems.isNotEmpty &&
+                          if (_purchaseMode == 'pack' &&
+                              _selectedPackItems.isNotEmpty &&
                               _packItemId != null) ...[
                             const SizedBox(height: 8),
                             Builder(
@@ -7826,12 +8210,29 @@ class _WalletsScreenState extends State<WalletsScreen> {
                                 );
                               },
                             ),
+                          ] else if (_purchaseMode == 'product' &&
+                              _selectedProduct != null) ...[
+                            const SizedBox(height: 8),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF4F7F8),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '${moneyOrDash(_selectedProduct?['price'])}'
+                                '${_selectedProduct?['is_monthly_recurring'] == true ? ' · Recorrência mensal' : ''}',
+                              ),
+                            ),
                           ],
                           const SizedBox(height: 8),
                           CupertinoButton(
                             color: const Color(0xFF0E4D50),
                             borderRadius: BorderRadius.circular(14),
-                            onPressed: _buyPack,
+                            onPressed: _purchaseMode == 'pack'
+                                ? _buyPack
+                                : _buyProduct,
                             child: const Text(
                               'Registar compra',
                               style: TextStyle(color: CupertinoColors.white),
@@ -10285,7 +10686,8 @@ class _SparkyScreenState extends State<SparkyScreen> {
   final List<Map<String, String>> _messages = [
     {
       'role': 'assistant',
-      'content': 'Olá! Sou o Sparky ⚡ O teu assistente do WireDevelop CRM. Em que posso ajudar?',
+      'content':
+          'Olá! Sou o Sparky ⚡ O teu assistente do WireDevelop CRM. Em que posso ajudar?',
     },
   ];
 
@@ -10318,7 +10720,10 @@ class _SparkyScreenState extends State<SparkyScreen> {
       });
     } catch (e) {
       setState(() {
-        _messages.add({'role': 'assistant', 'content': 'Erro: ${e.toString()}'});
+        _messages.add({
+          'role': 'assistant',
+          'content': 'Erro: ${e.toString()}',
+        });
       });
     } finally {
       setState(() => _loading = false);
@@ -10351,9 +10756,7 @@ class _SparkyScreenState extends State<SparkyScreen> {
       navigationBar: const CupertinoNavigationBar(
         middle: Row(
           mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('⚡ Sparky'),
-          ],
+          children: [Text('⚡ Sparky')],
         ),
         backgroundColor: Color(0xFF015557),
         brightness: Brightness.dark,
@@ -10364,7 +10767,10 @@ class _SparkyScreenState extends State<SparkyScreen> {
             Expanded(
               child: ListView.builder(
                 controller: _scrollController,
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 itemCount: _messages.length + (_loading ? 1 : 0),
                 itemBuilder: (context, index) {
                   if (_loading && index == _messages.length) {
@@ -10372,7 +10778,10 @@ class _SparkyScreenState extends State<SparkyScreen> {
                       alignment: Alignment.centerLeft,
                       child: Container(
                         margin: const EdgeInsets.only(bottom: 10),
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
                         decoration: BoxDecoration(
                           color: CupertinoColors.systemGrey6,
                           borderRadius: BorderRadius.circular(16),
@@ -10384,10 +10793,15 @@ class _SparkyScreenState extends State<SparkyScreen> {
                   final msg = _messages[index];
                   final isUser = msg['role'] == 'user';
                   return Align(
-                    alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                    alignment: isUser
+                        ? Alignment.centerRight
+                        : Alignment.centerLeft,
                     child: Container(
                       margin: const EdgeInsets.only(bottom: 10),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
                       constraints: BoxConstraints(
                         maxWidth: MediaQuery.of(context).size.width * 0.78,
                       ),
@@ -10398,14 +10812,20 @@ class _SparkyScreenState extends State<SparkyScreen> {
                         borderRadius: BorderRadius.only(
                           topLeft: const Radius.circular(16),
                           topRight: const Radius.circular(16),
-                          bottomLeft: isUser ? const Radius.circular(16) : const Radius.circular(4),
-                          bottomRight: isUser ? const Radius.circular(4) : const Radius.circular(16),
+                          bottomLeft: isUser
+                              ? const Radius.circular(16)
+                              : const Radius.circular(4),
+                          bottomRight: isUser
+                              ? const Radius.circular(4)
+                              : const Radius.circular(16),
                         ),
                       ),
                       child: Text(
                         msg['content'] ?? '',
                         style: TextStyle(
-                          color: isUser ? CupertinoColors.white : CupertinoColors.label,
+                          color: isUser
+                              ? CupertinoColors.white
+                              : CupertinoColors.label,
                           fontSize: 15,
                         ),
                       ),
@@ -10418,7 +10838,10 @@ class _SparkyScreenState extends State<SparkyScreen> {
               decoration: BoxDecoration(
                 color: CupertinoColors.systemBackground,
                 border: Border(
-                  top: BorderSide(color: CupertinoColors.systemGrey4, width: 0.5),
+                  top: BorderSide(
+                    color: CupertinoColors.systemGrey4,
+                    width: 0.5,
+                  ),
                 ),
               ),
               padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
@@ -10430,7 +10853,10 @@ class _SparkyScreenState extends State<SparkyScreen> {
                       placeholder: 'Pergunta ao Sparky...',
                       minLines: 1,
                       maxLines: 4,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
                       decoration: BoxDecoration(
                         color: CupertinoColors.systemGrey6,
                         borderRadius: BorderRadius.circular(20),
