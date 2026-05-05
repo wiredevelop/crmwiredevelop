@@ -6799,6 +6799,8 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
   Map<String, dynamic>? _wallet;
   String _activeTab = 'pack';
   String? _selectedClientId;
+  DateTime? _dateFrom;
+  DateTime? _dateTo;
   String _type = 'Manutenção';
   final TextEditingController _notesController = TextEditingController();
   final TextEditingController _hourlyRateController = TextEditingController();
@@ -6829,9 +6831,16 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
     });
 
     try {
-      final path = _selectedClientId == null
-          ? '/interventions?tab=$_activeTab'
-          : '/interventions?tab=$_activeTab&client_id=$_selectedClientId';
+      final query = <String>[
+        'tab=$_activeTab',
+        if ((_selectedClientId ?? '').isNotEmpty)
+          'client_id=$_selectedClientId',
+        if (_dateFrom != null)
+          'date_from=${Uri.encodeQueryComponent(DateFormat('yyyy-MM-dd').format(_dateFrom!))}',
+        if (_dateTo != null)
+          'date_to=${Uri.encodeQueryComponent(DateFormat('yyyy-MM-dd').format(_dateTo!))}',
+      ].join('&');
+      final path = '/interventions?$query';
       final result = await widget.controller.client.get(path);
       final data = (result['data'] as Map).cast<String, dynamic>();
       final clients = data['clients'] as List<dynamic>? ?? [];
@@ -6853,6 +6862,12 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
         _wallet = (data['wallet'] as Map?)?.cast<String, dynamic>();
         _activeTab = filteredDefaultTab;
         _selectedClientId = selectedClientId;
+        _dateFrom = data['date_from'] != null
+            ? DateTime.tryParse(data['date_from'].toString())
+            : _dateFrom;
+        _dateTo = data['date_to'] != null
+            ? DateTime.tryParse(data['date_to'].toString())
+            : _dateTo;
         if (_type.isEmpty && types.isNotEmpty) {
           _type = types.first.toString();
         }
@@ -6871,6 +6886,28 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  List<Map<String, dynamic>> get _interventionItems => _interventions
+      .map((item) => (item as Map).cast<String, dynamic>())
+      .toList();
+
+  String get _dateFilterLabel {
+    if (_dateFrom == null && _dateTo == null) {
+      return 'Sem filtro de data';
+    }
+
+    final from = _dateFrom != null ? formatDate(_dateFrom) : '—';
+    final to = _dateTo != null ? formatDate(_dateTo) : '—';
+
+    if (_dateFrom != null &&
+        _dateTo != null &&
+        DateFormat('yyyy-MM-dd').format(_dateFrom!) ==
+            DateFormat('yyyy-MM-dd').format(_dateTo!)) {
+      return 'Data: $from';
+    }
+
+    return 'De $from até $to';
   }
 
   List<Map<String, dynamic>> get _filteredClients {
@@ -7028,6 +7065,98 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
     if (confirmed == true) {
       setState(() => _type = selected);
     }
+  }
+
+  Future<DateTime?> _pickDate({
+    required String title,
+    DateTime? initialDate,
+  }) async {
+    var selected = initialDate ?? DateTime.now();
+    final confirmed = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (context) => Container(
+        height: 320,
+        color: CupertinoColors.systemBackground.resolveFrom(context),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Cancelar'),
+                  ),
+                  Expanded(
+                    child: Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () => Navigator.of(context).pop(true),
+                    child: const Text('Aplicar'),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: CupertinoDatePicker(
+                mode: CupertinoDatePickerMode.date,
+                initialDateTime: selected,
+                maximumDate: DateTime.now().add(const Duration(days: 365)),
+                onDateTimeChanged: (value) => selected = value,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return confirmed == true ? selected : null;
+  }
+
+  Future<void> _pickSingleDate() async {
+    final selected = await _pickDate(
+      title: 'Filtrar por data',
+      initialDate: _dateFrom ?? _dateTo,
+    );
+    if (selected == null) return;
+
+    setState(() {
+      _dateFrom = selected;
+      _dateTo = selected;
+    });
+    await _load();
+  }
+
+  Future<void> _pickDateRange() async {
+    final from = await _pickDate(title: 'Data inicial', initialDate: _dateFrom);
+    if (from == null) return;
+    final to = await _pickDate(
+      title: 'Data final',
+      initialDate: _dateTo ?? from,
+    );
+    if (to == null) return;
+
+    final start = from.isBefore(to) ? from : to;
+    final end = from.isBefore(to) ? to : from;
+    setState(() {
+      _dateFrom = start;
+      _dateTo = end;
+    });
+    await _load();
+  }
+
+  Future<void> _clearDateFilters() async {
+    setState(() {
+      _dateFrom = null;
+      _dateTo = null;
+    });
+    await _load();
   }
 
   Future<void> _startIntervention() async {
@@ -7310,6 +7439,17 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
     }
   }
 
+  Color _statusColor(String status) {
+    switch (status) {
+      case 'running':
+        return const Color(0xFF1565C0);
+      case 'paused':
+        return const Color(0xFFB26A00);
+      default:
+        return const Color(0xFF2E7D57);
+    }
+  }
+
   String _transactionMeta(Map<String, dynamic> item) {
     final parts = <String>[
       signedHours(item['seconds']),
@@ -7327,6 +7467,18 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final totalItems = _interventionItems.length;
+    final runningCount = _interventionItems
+        .where((item) => item['status']?.toString() == 'running')
+        .length;
+    final pausedCount = _interventionItems
+        .where((item) => item['status']?.toString() == 'paused')
+        .length;
+    final completedSeconds = _interventionItems.fold<int>(
+      0,
+      (sum, item) => sum + toNumber(item['total_seconds']).toInt(),
+    );
+
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: const Text('Intervenções'),
@@ -7336,275 +7488,499 @@ class _InterventionsScreenState extends State<InterventionsScreen> {
           child: const Icon(CupertinoIcons.refresh),
         ),
       ),
-      child: SafeArea(
-        child: _loading
-            ? const Center(child: CupertinoActivityIndicator(radius: 16))
-            : _error != null
-            ? ErrorState(message: _error!, onRetry: _load)
-            : ListView(
-                physics: const BouncingScrollPhysics(
-                  parent: AlwaysScrollableScrollPhysics(),
-                ),
-                children: [
-                  CardSection(
-                    title: 'Modo',
-                    child: CupertinoSlidingSegmentedControl<String>(
-                      groupValue: _activeTab,
-                      children: const {
-                        'pack': Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8),
-                          child: Text('Com pack'),
-                        ),
-                        'no-pack': Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8),
-                          child: Text('Sem pack'),
-                        ),
-                      },
-                      onValueChanged: (value) async {
-                        if (value == null) return;
-                        setState(() {
-                          _activeTab = value;
-                          _selectedClientId = null;
-                        });
-                        _syncHourlyRateFromClient();
-                        await _load();
-                      },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          const AppGradientBackground(),
+          SafeArea(
+            child: _loading
+                ? const Center(
+                    child: CupertinoActivityIndicator(
+                      radius: 16,
+                      color: CupertinoColors.white,
                     ),
-                  ),
-                  CardSection(
-                    title: 'Nova intervenção',
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: _selectClient,
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
+                  )
+                : _error != null
+                ? ErrorState(message: _error!, onRetry: _load)
+                : ListView(
+                    physics: const BouncingScrollPhysics(
+                      parent: AlwaysScrollableScrollPhysics(),
+                    ),
+                    padding: const EdgeInsets.only(bottom: 18),
+                    children: [
+                      CardSection(
+                        title: 'Visão rápida',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CupertinoSlidingSegmentedControl<String>(
+                              groupValue: _activeTab,
+                              children: const {
+                                'pack': Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 8),
+                                  child: Text('Com pack'),
+                                ),
+                                'no-pack': Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 8),
+                                  child: Text('Sem pack'),
+                                ),
+                              },
+                              onValueChanged: (value) async {
+                                if (value == null) return;
+                                setState(() {
+                                  _activeTab = value;
+                                  _selectedClientId = null;
+                                });
+                                _syncHourlyRateFromClient();
+                                await _load();
+                              },
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
                               _selectedClient == null
-                                  ? 'Selecionar cliente'
-                                  : 'Cliente: ${_selectedClient?['name'] ?? '—'}'
-                                        '${(_selectedClient?['company']?.toString() ?? '').isNotEmpty ? ' · ${_selectedClient?['company']}' : ''}',
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: _selectType,
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text('Tipo: $_type'),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        _field('Notas', _notesController, maxLines: 3),
-                        if (_activeTab == 'no-pack')
-                          _field('Valor/hora', _hourlyRateController),
-                        CupertinoButton.filled(
-                          onPressed: _startIntervention,
-                          child: const Text('Iniciar intervenção'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (_selectedClientId != null)
-                    CardSection(
-                      title: 'Carteira do cliente',
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Horas: ${signedHours(_wallet?['balance_seconds'])}',
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Valor: ${moneyOrDash(_wallet?['balance_amount'])}',
-                          ),
-                          const SizedBox(height: 10),
-                          if (_activeTab == 'pack') ...[
-                            _selectorField(
-                              label: 'Pack',
-                              value: _selectedPackProductLabel,
-                              onTap: _pickPackProduct,
-                            ),
-                            _selectorField(
-                              label: 'Opção',
-                              value: _selectedPackItemLabel,
-                              onTap: _pickPackItem,
-                            ),
-                            _field('Quantidade', _packQuantityController),
-                            if (_selectedPackItems.isNotEmpty &&
-                                _packItemId != null) ...[
-                              const SizedBox(height: 8),
-                              Builder(
-                                builder: (context) {
-                                  final selected = _selectedPackItems
-                                      .firstWhere(
-                                        (item) =>
-                                            item['id']?.toString() ==
-                                            _packItemId,
-                                        orElse: () => const <String, dynamic>{},
-                                      );
-
-                                  if (selected.isEmpty) {
-                                    return const SizedBox.shrink();
-                                  }
-
-                                  return Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF4F7F8),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      '${selected['hours']}h · ${moneyOrDash(selected['pack_price'])} · ${selected['validity_months']} meses',
-                                    ),
-                                  );
-                                },
+                                  ? _dateFilterLabel
+                                  : '${_selectedClient?['name'] ?? '—'} · $_dateFilterLabel',
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF335A5D),
                               ),
-                            ],
-                            CupertinoButton.filled(
-                              onPressed: _buyPack,
-                              child: const Text('Registar compra de pack'),
+                            ),
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 10,
+                              runSpacing: 10,
+                              children: [
+                                _InterventionMiniStat(
+                                  label: 'Registos',
+                                  value: '$totalItems',
+                                  tone: const Color(0xFF0D4B4F),
+                                  background: const Color(0xFFEAF3F3),
+                                ),
+                                _InterventionMiniStat(
+                                  label: 'Em curso',
+                                  value: '$runningCount',
+                                  tone: const Color(0xFF1565C0),
+                                  background: const Color(0xFFEAF2FF),
+                                ),
+                                _InterventionMiniStat(
+                                  label: 'Em pausa',
+                                  value: '$pausedCount',
+                                  tone: const Color(0xFFB26A00),
+                                  background: const Color(0xFFFFF3DE),
+                                ),
+                                _InterventionMiniStat(
+                                  label: 'Tempo',
+                                  value: _clockFromSeconds(completedSeconds),
+                                  tone: const Color(0xFF2E7D57),
+                                  background: const Color(0xFFE9F6EE),
+                                ),
+                              ],
                             ),
                           ],
-                        ],
+                        ),
                       ),
-                    ),
-                  if (_selectedClientId != null)
-                    CardSection(
-                      title: 'Transações da carteira',
-                      child: _transactions.isEmpty
-                          ? const Text('Sem transações registadas.')
-                          : Column(
+                      CardSection(
+                        title: 'Filtros',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: _selectClient,
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  _selectedClient == null
+                                      ? 'Selecionar cliente'
+                                      : 'Cliente: ${_selectedClient?['name'] ?? '—'}'
+                                            '${(_selectedClient?['company']?.toString() ?? '').isNotEmpty ? ' · ${_selectedClient?['company']}' : ''}',
+                                  style: const TextStyle(
+                                    color: Color(0xFF0E4D50),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _dateFilterLabel,
+                              style: const TextStyle(
+                                color: Color(0xFF4E7072),
+                                fontSize: 13,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
                               children: [
-                                for (final raw in _transactions)
+                                _DocActionButton(
+                                  icon: CupertinoIcons.calendar,
+                                  label: 'Data única',
+                                  onPressed: _pickSingleDate,
+                                ),
+                                _DocActionButton(
+                                  icon: CupertinoIcons.calendar_badge_plus,
+                                  label: 'Intervalo',
+                                  onPressed: _pickDateRange,
+                                ),
+                                _DocActionButton(
+                                  icon: CupertinoIcons.clear,
+                                  label: 'Limpar',
+                                  onPressed: _clearDateFilters,
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                      CardSection(
+                        title: 'Nova intervenção',
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (_selectedClient != null)
+                              Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(bottom: 12),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF4F7F8),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Text(
+                                  '${_selectedClient?['name'] ?? '—'}'
+                                  '${(_selectedClient?['company']?.toString() ?? '').isNotEmpty ? ' · ${_selectedClient?['company']}' : ''}',
+                                  style: const TextStyle(
+                                    color: Color(0xFF0E4D50),
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: _selectType,
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Tipo: $_type',
+                                  style: const TextStyle(
+                                    color: Color(0xFF0E4D50),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            CupertinoButton(
+                              padding: EdgeInsets.zero,
+                              onPressed: _selectClient,
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  _selectedClient == null
+                                      ? 'Escolher cliente'
+                                      : 'Trocar cliente',
+                                  style: const TextStyle(
+                                    color: Color(0xFF0E4D50),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            _field('Notas', _notesController, maxLines: 3),
+                            if (_activeTab == 'no-pack')
+                              _field('Valor/hora', _hourlyRateController),
+                            CupertinoButton.filled(
+                              onPressed: _startIntervention,
+                              child: const Text('Iniciar intervenção'),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_selectedClientId != null)
+                        CardSection(
+                          title: 'Carteira do cliente',
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Horas: ${signedHours(_wallet?['balance_seconds'])}',
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Valor: ${moneyOrDash(_wallet?['balance_amount'])}',
+                              ),
+                              const SizedBox(height: 10),
+                              if (_activeTab == 'pack') ...[
+                                _selectorField(
+                                  label: 'Pack',
+                                  value: _selectedPackProductLabel,
+                                  onTap: _pickPackProduct,
+                                ),
+                                _selectorField(
+                                  label: 'Opção',
+                                  value: _selectedPackItemLabel,
+                                  onTap: _pickPackItem,
+                                ),
+                                _field('Quantidade', _packQuantityController),
+                                if (_selectedPackItems.isNotEmpty &&
+                                    _packItemId != null) ...[
+                                  const SizedBox(height: 8),
                                   Builder(
                                     builder: (context) {
-                                      final item = (raw as Map)
-                                          .cast<String, dynamic>();
-                                      return Padding(
-                                        padding: const EdgeInsets.only(
-                                          bottom: 10,
-                                        ),
-                                        child: Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: Text(
-                                            '${walletTransactionTypeLabel(item['type']?.toString() ?? '')} · ${item['description'] ?? 'Transação'}\n${_transactionMeta(item)}',
+                                      final selected = _selectedPackItems
+                                          .firstWhere(
+                                            (item) =>
+                                                item['id']?.toString() ==
+                                                _packItemId,
+                                            orElse: () =>
+                                                const <String, dynamic>{},
+                                          );
+
+                                      if (selected.isEmpty) {
+                                        return const SizedBox.shrink();
+                                      }
+
+                                      return Container(
+                                        width: double.infinity,
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFF4F7F8),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
                                           ),
+                                        ),
+                                        child: Text(
+                                          '${selected['hours']}h · ${moneyOrDash(selected['pack_price'])} · ${selected['validity_months']} meses',
                                         ),
                                       );
                                     },
                                   ),
-                              ],
-                            ),
-                    ),
-                  CardSection(
-                    title: 'Registos recentes',
-                    child: _interventions.isEmpty
-                        ? const Text('Sem intervenções para mostrar.')
-                        : Column(
-                            children: [
-                              for (final raw in _interventions)
-                                Builder(
-                                  builder: (context) {
-                                    final item = (raw as Map)
-                                        .cast<String, dynamic>();
-                                    final status =
-                                        item['status']?.toString() ?? '';
-                                    return Padding(
-                                      padding: const EdgeInsets.only(
-                                        bottom: 12,
-                                      ),
-                                      child: Container(
-                                        width: double.infinity,
-                                        padding: const EdgeInsets.all(12),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFF4F7F8),
-                                          borderRadius: BorderRadius.circular(
-                                            14,
-                                          ),
-                                        ),
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              '${item['client']?['name'] ?? '—'} · ${item['type'] ?? 'Intervenção'}',
-                                              style: const TextStyle(
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              '${_statusLabel(status)} · Início: ${formatDate(item['started_at'])}',
-                                            ),
-                                            const SizedBox(height: 4),
-                                            Text(
-                                              'Fim: ${formatDate(item['ended_at'])} · Tempo: ${_formatClock(item)}',
-                                            ),
-                                            if ((item['notes']?.toString() ??
-                                                    '')
-                                                .isNotEmpty)
-                                              Padding(
-                                                padding: const EdgeInsets.only(
-                                                  top: 4,
-                                                ),
-                                                child: Text(
-                                                  'Notas: ${item['notes']}',
-                                                ),
-                                              ),
-                                            const SizedBox(height: 8),
-                                            Wrap(
-                                              spacing: 10,
-                                              children: [
-                                                if (status == 'running')
-                                                  CupertinoButton(
-                                                    padding: EdgeInsets.zero,
-                                                    onPressed: () =>
-                                                        _pauseIntervention(
-                                                          item['id'] as int,
-                                                        ),
-                                                    child: const Text('Pausar'),
-                                                  ),
-                                                if (status == 'paused')
-                                                  CupertinoButton(
-                                                    padding: EdgeInsets.zero,
-                                                    onPressed: () =>
-                                                        _resumeIntervention(
-                                                          item['id'] as int,
-                                                        ),
-                                                    child: const Text(
-                                                      'Retomar',
-                                                    ),
-                                                  ),
-                                                if (status != 'completed')
-                                                  CupertinoButton(
-                                                    padding: EdgeInsets.zero,
-                                                    onPressed: () =>
-                                                        _finishIntervention(
-                                                          item,
-                                                        ),
-                                                    child: const Text(
-                                                      'Concluir',
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
+                                ],
+                                CupertinoButton.filled(
+                                  onPressed: _buyPack,
+                                  child: const Text('Registar compra de pack'),
                                 ),
+                              ],
                             ],
                           ),
+                        ),
+                      if (_selectedClientId != null)
+                        CardSection(
+                          title: 'Transações da carteira',
+                          child: _transactions.isEmpty
+                              ? const Text('Sem transações registadas.')
+                              : Column(
+                                  children: [
+                                    for (final raw in _transactions)
+                                      Builder(
+                                        builder: (context) {
+                                          final item = (raw as Map)
+                                              .cast<String, dynamic>();
+                                          return Padding(
+                                            padding: const EdgeInsets.only(
+                                              bottom: 10,
+                                            ),
+                                            child: Align(
+                                              alignment: Alignment.centerLeft,
+                                              child: Text(
+                                                '${walletTransactionTypeLabel(item['type']?.toString() ?? '')} · ${item['description'] ?? 'Transação'}\n${_transactionMeta(item)}',
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                  ],
+                                ),
+                        ),
+                      CardSection(
+                        title: 'Registos recentes',
+                        child: _interventionItems.isEmpty
+                            ? const Text('Sem intervenções para mostrar.')
+                            : Column(
+                                children: [
+                                  for (final item in _interventionItems)
+                                    Builder(
+                                      builder: (context) {
+                                        final status =
+                                            item['status']?.toString() ?? '';
+                                        return Padding(
+                                          padding: const EdgeInsets.only(
+                                            bottom: 12,
+                                          ),
+                                          child: GlassPanel(
+                                            enableBlur: false,
+                                            radius: 18,
+                                            padding: const EdgeInsets.all(14),
+                                            child: Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Expanded(
+                                                      child: Column(
+                                                        crossAxisAlignment:
+                                                            CrossAxisAlignment
+                                                                .start,
+                                                        children: [
+                                                          Text(
+                                                            '${item['client']?['name'] ?? '—'} · ${item['type'] ?? 'Intervenção'}',
+                                                            style:
+                                                                const TextStyle(
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w700,
+                                                                  fontSize: 16,
+                                                                  color: Color(
+                                                                    0xFF0C3E42,
+                                                                  ),
+                                                                ),
+                                                          ),
+                                                          const SizedBox(
+                                                            height: 6,
+                                                          ),
+                                                          Text(
+                                                            'Início ${formatDate(item['started_at'])}',
+                                                            style:
+                                                                const TextStyle(
+                                                                  color: Color(
+                                                                    0xFF47696B,
+                                                                  ),
+                                                                  fontSize: 13,
+                                                                ),
+                                                          ),
+                                                        ],
+                                                      ),
+                                                    ),
+                                                    const SizedBox(width: 10),
+                                                    _InterventionStatusChip(
+                                                      label: _statusLabel(
+                                                        status,
+                                                      ),
+                                                      color: _statusColor(
+                                                        status,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 10),
+                                                Wrap(
+                                                  spacing: 8,
+                                                  runSpacing: 8,
+                                                  children: [
+                                                    _InterventionMetaPill(
+                                                      icon:
+                                                          CupertinoIcons.clock,
+                                                      label: _formatClock(item),
+                                                    ),
+                                                    _InterventionMetaPill(
+                                                      icon: CupertinoIcons
+                                                          .calendar,
+                                                      label: formatDate(
+                                                        item['ended_at'],
+                                                      ),
+                                                    ),
+                                                    _InterventionMetaPill(
+                                                      icon:
+                                                          item['is_pack'] ==
+                                                              true
+                                                          ? CupertinoIcons
+                                                                .cube_box
+                                                          : CupertinoIcons
+                                                                .money_euro,
+                                                      label:
+                                                          item['is_pack'] ==
+                                                              true
+                                                          ? 'Pack'
+                                                          : '${moneyOrDash(item['hourly_rate'])}/h',
+                                                    ),
+                                                  ],
+                                                ),
+                                                if ((item['notes']
+                                                            ?.toString() ??
+                                                        '')
+                                                    .isNotEmpty) ...[
+                                                  const SizedBox(height: 10),
+                                                  Text(
+                                                    item['notes'].toString(),
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF335A5D),
+                                                    ),
+                                                  ),
+                                                ],
+                                                if ((item['finish_notes']
+                                                            ?.toString() ??
+                                                        '')
+                                                    .isNotEmpty) ...[
+                                                  const SizedBox(height: 8),
+                                                  Text(
+                                                    'Fecho: ${item['finish_notes']}',
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF47696B),
+                                                      fontSize: 13,
+                                                    ),
+                                                  ),
+                                                ],
+                                                const SizedBox(height: 8),
+                                                Wrap(
+                                                  spacing: 10,
+                                                  runSpacing: 6,
+                                                  children: [
+                                                    if (status == 'running')
+                                                      CupertinoButton(
+                                                        padding:
+                                                            EdgeInsets.zero,
+                                                        onPressed: () =>
+                                                            _pauseIntervention(
+                                                              item['id'] as int,
+                                                            ),
+                                                        child: const Text(
+                                                          'Pausar',
+                                                        ),
+                                                      ),
+                                                    if (status == 'paused')
+                                                      CupertinoButton(
+                                                        padding:
+                                                            EdgeInsets.zero,
+                                                        onPressed: () =>
+                                                            _resumeIntervention(
+                                                              item['id'] as int,
+                                                            ),
+                                                        child: const Text(
+                                                          'Retomar',
+                                                        ),
+                                                      ),
+                                                    if (status != 'completed')
+                                                      CupertinoButton(
+                                                        padding:
+                                                            EdgeInsets.zero,
+                                                        onPressed: () =>
+                                                            _finishIntervention(
+                                                              item,
+                                                            ),
+                                                        child: const Text(
+                                                          'Concluir',
+                                                        ),
+                                                      ),
+                                                  ],
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                ],
+                              ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+          ),
+        ],
       ),
     );
   }
@@ -10134,6 +10510,113 @@ Widget _selectorField({
       ],
     ),
   );
+}
+
+class _InterventionMiniStat extends StatelessWidget {
+  const _InterventionMiniStat({
+    required this.label,
+    required this.value,
+    required this.tone,
+    required this.background,
+  });
+
+  final String label;
+  final String value;
+  final Color tone;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: const BoxConstraints(minWidth: 120),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              color: tone.withValues(alpha: 0.8),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: TextStyle(
+              color: tone,
+              fontSize: 17,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InterventionStatusChip extends StatelessWidget {
+  const _InterventionStatusChip({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _InterventionMetaPill extends StatelessWidget {
+  const _InterventionMetaPill({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F7F8),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: const Color(0xFF47696B)),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: const TextStyle(
+              color: Color(0xFF335A5D),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 Widget _richTextField(String label, TextEditingController controller) {

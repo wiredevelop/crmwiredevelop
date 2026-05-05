@@ -22,6 +22,13 @@ class InterventionApiController extends Controller
 
     public function index(Request $request): JsonResponse
     {
+        $data = $request->validate([
+            'client_id' => ['nullable', 'integer', 'exists:clients,id'],
+            'tab' => ['nullable', 'in:pack,no-pack'],
+            'date_from' => ['nullable', 'date'],
+            'date_to' => ['nullable', 'date'],
+        ]);
+
         $clients = Client::with('wallet:id,client_id,balance_seconds')
             ->orderBy('name')
             ->get()
@@ -33,8 +40,10 @@ class InterventionApiController extends Controller
                 'hourly_rate' => $client->hourly_rate,
             ]);
 
-        $selectedClientId = $request->query('client_id');
-        $selectedTab = $request->query('tab');
+        $selectedClientId = isset($data['client_id']) ? (string) $data['client_id'] : null;
+        $selectedTab = $data['tab'] ?? null;
+        $dateFrom = ! empty($data['date_from']) ? Carbon::parse($data['date_from'])->startOfDay() : null;
+        $dateTo = ! empty($data['date_to']) ? Carbon::parse($data['date_to'])->endOfDay() : null;
         if (! in_array($selectedTab, ['pack', 'no-pack'], true)) {
             $selectedTab = null;
         }
@@ -44,8 +53,10 @@ class InterventionApiController extends Controller
 
         $interventions = Intervention::with('client:id,name,company')
             ->when($selectedClientId, fn ($q) => $q->where('client_id', $selectedClientId))
+            ->when($dateFrom, fn ($q) => $q->where('started_at', '>=', $dateFrom))
+            ->when($dateTo, fn ($q) => $q->where('started_at', '<=', $dateTo))
             ->orderByDesc('started_at')
-            ->take(50)
+            ->take(100)
             ->get();
 
         $packs = Product::with('packItems')
@@ -85,6 +96,8 @@ class InterventionApiController extends Controller
             'interventions' => InterventionResource::collection($interventions),
             'selected_client_id' => $selectedClientId,
             'selected_tab' => $selectedTab,
+            'date_from' => $dateFrom?->toDateString(),
+            'date_to' => $dateTo?->toDateString(),
             'types' => self::TYPES,
             'selected_client' => $selectedClient,
             'wallet' => $wallet,
