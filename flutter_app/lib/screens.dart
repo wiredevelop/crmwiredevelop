@@ -70,6 +70,8 @@ String walletTransactionTypeLabel(String type) {
 
 String projectStatusLabel(String? status) {
   switch (status) {
+    case 'orcamentado':
+      return 'Orçamentado';
     case 'planeamento':
       return 'Planeamento';
     case 'em_andamento':
@@ -91,6 +93,8 @@ String projectStatusLabel(String? status) {
 
 Color projectStatusColor(String? status) {
   switch (status) {
+    case 'orcamentado':
+      return const Color(0xFF8E6C00);
     case 'concluido':
       return const Color(0xFF2E7D57);
     case 'em_andamento':
@@ -752,6 +756,9 @@ class _HomeShellState extends State<HomeShell> {
       case 'projects':
         _tabController.index = 2;
         return;
+      case 'sparky':
+        _tabController.index = 3;
+        return;
       case 'wallet':
         _openMoreModule('wallet');
         return;
@@ -767,7 +774,7 @@ class _HomeShellState extends State<HomeShell> {
         return;
       case 'more':
         if (request.module == null || request.module!.isEmpty) {
-          _tabController.index = 3;
+          _tabController.index = 4;
           return;
         }
         _openMoreModule(request.module!);
@@ -780,7 +787,7 @@ class _HomeShellState extends State<HomeShell> {
     String? clientId,
     String? invoiceStatus,
   }) {
-    _tabController.index = 3;
+    _tabController.index = 4;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final screen = _buildMoreModuleScreen(
@@ -865,6 +872,10 @@ class _HomeShellState extends State<HomeShell> {
             label: 'Projetos',
           ),
           const BottomNavigationBarItem(
+            icon: Icon(CupertinoIcons.bolt_fill),
+            label: 'Sparky',
+          ),
+          const BottomNavigationBarItem(
             icon: Icon(CupertinoIcons.square_grid_2x2),
             label: 'Mais',
           ),
@@ -872,7 +883,7 @@ class _HomeShellState extends State<HomeShell> {
       ),
       tabBuilder: (context, index) {
         return CupertinoTabView(
-          navigatorKey: index == 3 ? _moreTabNavigatorKey : null,
+          navigatorKey: index == 4 ? _moreTabNavigatorKey : null,
           builder: (context) {
             switch (index) {
               case 0:
@@ -883,6 +894,8 @@ class _HomeShellState extends State<HomeShell> {
                     : ClientsScreen(controller: widget.controller);
               case 2:
                 return ProjectsScreen(controller: widget.controller);
+              case 3:
+                return SparkyScreen(controller: widget.controller);
               default:
                 return MoreModulesScreen(controller: widget.controller);
             }
@@ -1225,6 +1238,8 @@ class _ObjectsScreenState extends State<ObjectsScreen> {
 
   String _statusLabel(String? status) {
     switch (status) {
+      case 'orcamentado':
+        return 'Orçamentado';
       case 'planeamento':
         return 'Planeamento';
       case 'em_andamento':
@@ -2859,11 +2874,14 @@ class ProjectDetailScreen extends StatefulWidget {
 
 class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
   static const _projectStatuses = <String>[
+    'orcamentado',
     'planeamento',
     'em_andamento',
     'aguardar_conteudos',
     'em_revisao',
     'concluido',
+    'pausado',
+    'cancelado',
   ];
 
   bool _loading = true;
@@ -3042,6 +3060,36 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
     await _sendMessage(type: type, attachment: attachment);
   }
 
+  Future<void> _updateStatus(String status) async {
+    if (widget.controller.isClientUser) {
+      return;
+    }
+
+    final current = (_project ?? widget.project)['status']?.toString();
+    if (current == status) {
+      return;
+    }
+
+    setState(() => _loading = true);
+    try {
+      final result = await widget.controller.client.post(
+        '/projects/$_projectId/status',
+        body: {'status': status},
+      );
+      final project = ((result['data'] as Map?)?['project'] as Map?)
+          ?.cast<String, dynamic>();
+      if (project != null) {
+        setState(() => _project = project);
+      }
+      await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      await showMessage(context, title: 'Erro', message: error.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final project = _project ?? widget.project;
@@ -3137,7 +3185,7 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                         ),
                       ),
                       CardSection(
-                        title: 'Tracking',
+                        title: 'Tracking & Comunicação',
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -3146,11 +3194,17 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                               runSpacing: 8,
                               children: [
                                 for (final status in _projectStatuses)
-                                  _StatusStepChip(
-                                    label: projectStatusLabel(status),
-                                    active:
-                                        project['status']?.toString() == status,
-                                    color: projectStatusColor(status),
+                                  GestureDetector(
+                                    onTap: widget.controller.isClientUser
+                                        ? null
+                                        : () => _updateStatus(status),
+                                    child: _StatusStepChip(
+                                      label: projectStatusLabel(status),
+                                      active:
+                                          project['status']?.toString() ==
+                                          status,
+                                      color: projectStatusColor(status),
+                                    ),
                                   ),
                               ],
                             ),
@@ -3163,6 +3217,77 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                                 ),
                               ),
                             ],
+                            const SizedBox(height: 16),
+                            if (messages.isEmpty)
+                              const Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Sem mensagens ainda. Usa esta área para alinhar o desenvolvimento.',
+                                ),
+                              ),
+                            if (messages.isNotEmpty)
+                              for (final message in messages)
+                                _ProjectMessageBubble(message: message),
+                            const SizedBox(height: 8),
+                            CupertinoTextField(
+                              controller: _messageController,
+                              minLines: 3,
+                              maxLines: 5,
+                              placeholder:
+                                  'Escreve aqui atualização, pedido ou resposta…',
+                              padding: const EdgeInsets.all(14),
+                            ),
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CupertinoButton(
+                                    padding: EdgeInsets.zero,
+                                    onPressed: _sending
+                                        ? null
+                                        : () => _sendMessage(
+                                            type: 'proof_request',
+                                            body:
+                                                'Pedido de prova: por favor partilha atualização, captura de ecrã ou vídeo deste ponto do projeto.',
+                                          ),
+                                    child: const Text('Pedir prova'),
+                                  ),
+                                  CupertinoButton(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    onPressed: _sending
+                                        ? null
+                                        : () => _sendImageMessage(
+                                            type: widget.controller.isClientUser
+                                                ? 'proof_submission'
+                                                : 'message',
+                                          ),
+                                    child: const Icon(
+                                      CupertinoIcons.photo_on_rectangle,
+                                    ),
+                                  ),
+                                  CupertinoButton(
+                                    color: const Color(0xFF0E4D50),
+                                    borderRadius: BorderRadius.circular(14),
+                                    onPressed: _sending ? null : _sendMessage,
+                                    child: _sending
+                                        ? const CupertinoActivityIndicator(
+                                            color: CupertinoColors.white,
+                                          )
+                                        : const Text(
+                                            'Enviar mensagem',
+                                            style: TextStyle(
+                                              color: CupertinoColors.white,
+                                            ),
+                                          ),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -3372,104 +3497,6 @@ class _ProjectDetailScreenState extends State<ProjectDetailScreen> {
                             _htmlToEditorText(quote['terms'].toString()),
                           ),
                         ),
-                      CardSection(
-                        title: 'Comunicação',
-                        trailing: widget.controller.isClientUser
-                            ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  CupertinoButton(
-                                    padding: EdgeInsets.zero,
-                                    onPressed: _sending
-                                        ? null
-                                        : () => _sendMessage(
-                                            type: 'proof_request',
-                                          ),
-                                    child: const Text('Pedir prova'),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  CupertinoButton(
-                                    padding: EdgeInsets.zero,
-                                    onPressed: _sending
-                                        ? null
-                                        : () => _sendImageMessage(
-                                            type: 'proof_submission',
-                                          ),
-                                    child: const Text('Enviar prova'),
-                                  ),
-                                ],
-                              )
-                            : CupertinoButton(
-                                padding: EdgeInsets.zero,
-                                onPressed: _sending
-                                    ? null
-                                    : () => _sendMessage(
-                                        type: 'proof_request',
-                                        body:
-                                            'Pedido de prova: por favor partilha atualização, captura de ecrã ou vídeo deste ponto do projeto.',
-                                      ),
-                                child: const Text('Pedir prova'),
-                              ),
-                        child: Column(
-                          children: [
-                            if (messages.isEmpty)
-                              const Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  'Sem mensagens ainda. Usa esta área para alinhar o desenvolvimento.',
-                                ),
-                              ),
-                            if (messages.isNotEmpty)
-                              for (final message in messages)
-                                _ProjectMessageBubble(message: message),
-                            const SizedBox(height: 8),
-                            CupertinoTextField(
-                              controller: _messageController,
-                              minLines: 3,
-                              maxLines: 5,
-                              placeholder:
-                                  'Escreve aqui atualização, pedido ou resposta…',
-                              padding: const EdgeInsets.all(14),
-                            ),
-                            const SizedBox(height: 10),
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  CupertinoButton(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 10,
-                                    ),
-                                    onPressed: _sending
-                                        ? null
-                                        : () => _sendImageMessage(),
-                                    child: const Icon(
-                                      CupertinoIcons.photo_on_rectangle,
-                                    ),
-                                  ),
-                                  CupertinoButton(
-                                    color: const Color(0xFF0E4D50),
-                                    borderRadius: BorderRadius.circular(14),
-                                    onPressed: _sending ? null : _sendMessage,
-                                    child: _sending
-                                        ? const CupertinoActivityIndicator(
-                                            color: CupertinoColors.white,
-                                          )
-                                        : const Text(
-                                            'Enviar mensagem',
-                                            style: TextStyle(
-                                              color: CupertinoColors.white,
-                                            ),
-                                          ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ],
                   ),
           ),
@@ -3634,7 +3661,7 @@ class _ProjectFormScreenState extends State<ProjectFormScreen> {
   List<dynamic> _statusOptions = [];
   int? _clientId;
   String? _selectedClientLabel;
-  String _status = 'planeamento';
+  String _status = 'orcamentado';
   String _type = 'website';
   final _name = TextEditingController();
   final _technologies = TextEditingController();
@@ -4178,6 +4205,16 @@ class MoreModulesScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final modules = controller.isClientUser
         ? [
+            (
+              'Sparky ⚡',
+              CupertinoIcons.bolt_fill,
+              SparkyScreen(controller: controller),
+            ),
+            (
+              'Financeiro',
+              CupertinoIcons.money_euro_circle,
+              FinanceScreen(controller: controller),
+            ),
             (
               'Carteira',
               CupertinoIcons.creditcard,
@@ -6342,14 +6379,26 @@ class _FinanceScreenState extends State<FinanceScreen> {
   bool _bulkInvoicing = false;
   String? _error;
   List<dynamic> _sales = [];
+  List<dynamic> _projects = [];
+  List<dynamic> _invoices = [];
   List<dynamic> _installments = [];
   int _selectedYear = DateTime.now().year;
   List<int> _availableYears = <int>[];
+  final TextEditingController _financeSearchController =
+      TextEditingController();
+  String _financeType = 'all';
+  String _financeStatus = 'all';
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _financeSearchController.dispose();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -6364,6 +6413,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
       final payload = (result['data'] as Map?)?.cast<String, dynamic>() ?? {};
       setState(() {
         _sales = payload['sales'] as List<dynamic>? ?? [];
+        _projects = payload['projects'] as List<dynamic>? ?? [];
+        _invoices = payload['invoices'] as List<dynamic>? ?? [];
         _installments = payload['installments'] as List<dynamic>? ?? [];
         _selectedYear =
             (payload['selected_year'] as num?)?.toInt() ?? _selectedYear;
@@ -6420,6 +6471,164 @@ class _FinanceScreenState extends State<FinanceScreen> {
     }
   }
 
+  Future<void> _pickFinanceType() async {
+    final selected = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('Filtrar tipo'),
+        actions: [
+          for (final option in const [
+            ['all', 'Todos'],
+            ['project', 'Projetos'],
+            ['intervention', 'Intervenções'],
+            ['document', 'Documentos'],
+            ['installment', 'Parcelas'],
+          ])
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(context).pop(option[0]),
+              child: Text(option[1]),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+      ),
+    );
+
+    if (selected != null && selected != _financeType) {
+      setState(() => _financeType = selected);
+    }
+  }
+
+  Future<void> _pickFinanceStatus() async {
+    final selected = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: const Text('Filtrar estado'),
+        actions: [
+          for (final option in const [
+            ['all', 'Todos'],
+            ['paid', 'Pago'],
+            ['pending', 'Pendente'],
+            ['uninvoiced', 'Não faturado'],
+            ['budgeted', 'Orçamentado'],
+          ])
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(context).pop(option[0]),
+              child: Text(option[1]),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+      ),
+    );
+
+    if (selected != null && selected != _financeStatus) {
+      setState(() => _financeStatus = selected);
+    }
+  }
+
+  String get _financeTypeLabel {
+    switch (_financeType) {
+      case 'project':
+        return 'Projetos';
+      case 'intervention':
+        return 'Intervenções';
+      case 'document':
+        return 'Documentos';
+      case 'installment':
+        return 'Parcelas';
+      default:
+        return 'Todos';
+    }
+  }
+
+  String get _financeStatusLabel {
+    switch (_financeStatus) {
+      case 'paid':
+        return 'Pago';
+      case 'pending':
+        return 'Pendente';
+      case 'uninvoiced':
+        return 'Não faturado';
+      case 'budgeted':
+        return 'Orçamentado';
+      default:
+        return 'Todos';
+    }
+  }
+
+  String _normalizeFinanceItem(Map<String, dynamic> item) {
+    return jsonEncode(item).toLowerCase();
+  }
+
+  bool _matchesFinanceSearch(Map<String, dynamic> item) {
+    final search = _financeSearchController.text.trim().toLowerCase();
+    if (search.isEmpty) {
+      return true;
+    }
+
+    return _normalizeFinanceItem(item).contains(search);
+  }
+
+  bool _matchesSaleStatus(Map<String, dynamic> item) {
+    switch (_financeStatus) {
+      case 'paid':
+        return _financeSaleIsPaid(item);
+      case 'pending':
+        return !_financeSaleIsPaid(item) && _financeSaleHasDocument(item);
+      case 'uninvoiced':
+        return !_financeSaleHasDocument(item);
+      case 'budgeted':
+        return item['status']?.toString() == 'orcamentado' ||
+            item['project']?['status']?.toString() == 'orcamentado';
+      default:
+        return true;
+    }
+  }
+
+  bool _matchesProjectStatus(Map<String, dynamic> item) {
+    switch (_financeStatus) {
+      case 'paid':
+        return item['invoice_status']?.toString() == 'pago' ||
+            toNumber(item['remaining_amount']) <= 0;
+      case 'pending':
+        return item['status']?.toString() != 'orcamentado' &&
+            toNumber(item['remaining_amount']) > 0;
+      case 'uninvoiced':
+        return (item['invoice_number']?.toString() ?? '').trim().isEmpty;
+      case 'budgeted':
+        return item['status']?.toString() == 'orcamentado';
+      default:
+        return true;
+    }
+  }
+
+  bool _matchesInvoiceStatus(Map<String, dynamic> item) {
+    switch (_financeStatus) {
+      case 'paid':
+        return item['status']?.toString() == 'pago';
+      case 'pending':
+        return item['status']?.toString() == 'pendente';
+      default:
+        return _financeStatus == 'all';
+    }
+  }
+
+  bool _matchesInstallmentStatus(Map<String, dynamic> item) {
+    switch (_financeStatus) {
+      case 'paid':
+        return true;
+      case 'uninvoiced':
+        return item['invoice_id'] == null;
+      default:
+        return _financeStatus == 'all';
+    }
+  }
+
   String _saleSource(Map<String, dynamic> sale) {
     final source = sale['source']?.toString();
     if (source == 'project' ||
@@ -6457,6 +6666,65 @@ class _FinanceScreenState extends State<FinanceScreen> {
       .map((item) => (item as Map).cast<String, dynamic>())
       .where(_saleCanInvoice)
       .toList();
+
+  List<Map<String, dynamic>> get _filteredSales {
+    if (!{'all', 'project', 'intervention'}.contains(_financeType)) {
+      return const [];
+    }
+
+    return _sales.map((item) => (item as Map).cast<String, dynamic>()).where((
+      item,
+    ) {
+      if (_financeType == 'project' && _saleSource(item) != 'project') {
+        return false;
+      }
+      if (_financeType == 'intervention' &&
+          item['type']?.toString() != 'Intervenção') {
+        return false;
+      }
+      return _matchesFinanceSearch(item) && _matchesSaleStatus(item);
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> get _filteredProjects {
+    if (!{'all', 'project'}.contains(_financeType)) {
+      return const [];
+    }
+
+    return _projects
+        .map((item) => (item as Map).cast<String, dynamic>())
+        .where(
+          (item) => _matchesFinanceSearch(item) && _matchesProjectStatus(item),
+        )
+        .toList();
+  }
+
+  List<Map<String, dynamic>> get _filteredInvoices {
+    if (!{'all', 'document'}.contains(_financeType)) {
+      return const [];
+    }
+
+    return _invoices
+        .map((item) => (item as Map).cast<String, dynamic>())
+        .where(
+          (item) => _matchesFinanceSearch(item) && _matchesInvoiceStatus(item),
+        )
+        .toList();
+  }
+
+  List<Map<String, dynamic>> get _filteredInstallments {
+    if (!{'all', 'installment'}.contains(_financeType)) {
+      return const [];
+    }
+
+    return _installments
+        .map((item) => (item as Map).cast<String, dynamic>())
+        .where(
+          (item) =>
+              _matchesFinanceSearch(item) && _matchesInstallmentStatus(item),
+        )
+        .toList();
+  }
 
   Future<void> _openBulkInvoiceSelector() async {
     if (_bulkInvoicing) {
@@ -6664,10 +6932,21 @@ class _FinanceScreenState extends State<FinanceScreen> {
           return !_financeSaleIsPaid(sale) && _financeSaleHasDocument(sale);
         })
         .fold<num>(0, (sum, item) => sum + toNumber((item as Map)['amount']));
+    final budgetedProjects = _projects
+        .where((item) => (item as Map)['status']?.toString() == 'orcamentado')
+        .fold<num>(
+          0,
+          (sum, item) => sum + toNumber((item as Map)['remaining_amount']),
+        );
     final installmentTotal = _installments.fold<num>(
       0,
       (sum, item) => sum + toNumber((item as Map)['amount']),
     );
+    final hasFilteredResults =
+        _filteredProjects.isNotEmpty ||
+        _filteredInvoices.isNotEmpty ||
+        _filteredInstallments.isNotEmpty ||
+        _filteredSales.isNotEmpty;
 
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
@@ -6725,6 +7004,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
                           background: const Color(0xFFFFF3DE),
                         ),
                         _FinanceStatTile(
+                          label: 'Orçamentado',
+                          value: money(budgetedProjects),
+                          accent: const Color(0xFF8E6C00),
+                          background: const Color(0xFFFFF8D9),
+                        ),
+                        _FinanceStatTile(
                           label: 'Parcelas',
                           value: money(installmentTotal),
                           accent: const Color(0xFF6A1B9A),
@@ -6734,44 +7019,138 @@ class _FinanceScreenState extends State<FinanceScreen> {
                     ),
                   ),
                   CardSection(
-                    title: 'Faturação',
-                    child: _invoiceCandidates.isEmpty
-                        ? const Text(
-                            'Sem intervenções ou produtos por faturar.',
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${_invoiceCandidates.length} item(ns) disponível(eis) para faturar.',
-                              ),
-                              const SizedBox(height: 10),
-                              CupertinoButton.filled(
-                                onPressed: _bulkInvoicing
-                                    ? null
-                                    : _openBulkInvoiceSelector,
-                                child: Text(
-                                  _bulkInvoicing
-                                      ? 'A faturar...'
-                                      : 'Selecionar e faturar',
-                                ),
-                              ),
-                            ],
+                    title: 'Filtros',
+                    child: Column(
+                      children: [
+                        CupertinoTextField(
+                          controller: _financeSearchController,
+                          placeholder: 'Projeto, documento, intervenção...',
+                          prefix: const Padding(
+                            padding: EdgeInsets.only(left: 10),
+                            child: Icon(
+                              CupertinoIcons.search,
+                              color: Color(0xFF6B7F80),
+                              size: 18,
+                            ),
                           ),
-                  ),
-                  CardSection(
-                    title: 'Movimentos recentes',
-                    child: _sales.isEmpty
-                        ? const EmptyState('Sem movimentos.')
-                        : Column(
-                            children: [
-                              for (final raw in _sales.take(20))
-                                _FinanceRow(
-                                  item: (raw as Map).cast<String, dynamic>(),
-                                ),
-                            ],
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
                           ),
+                          onChanged: (_) => setState(() {}),
+                        ),
+                        const SizedBox(height: 10),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _FinanceFilterButton(
+                                label: 'Tipo: $_financeTypeLabel',
+                                onPressed: _pickFinanceType,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _FinanceFilterButton(
+                                label: 'Estado: $_financeStatusLabel',
+                                onPressed: _pickFinanceStatus,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
+                  if (!widget.controller.isClientUser)
+                    CardSection(
+                      title: 'Faturação',
+                      child: _invoiceCandidates.isEmpty
+                          ? const Text(
+                              'Sem intervenções ou produtos por faturar.',
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${_invoiceCandidates.length} item(ns) disponível(eis) para faturar.',
+                                ),
+                                const SizedBox(height: 10),
+                                CupertinoButton.filled(
+                                  onPressed: _bulkInvoicing
+                                      ? null
+                                      : _openBulkInvoiceSelector,
+                                  child: Text(
+                                    _bulkInvoicing
+                                        ? 'A faturar...'
+                                        : 'Selecionar e faturar',
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  if (!hasFilteredResults)
+                    const CardSection(
+                      title: 'Resultados',
+                      child: EmptyState(
+                        'Sem resultados para os filtros atuais.',
+                      ),
+                    ),
+                  if (_filteredProjects.isNotEmpty)
+                    CardSection(
+                      title: 'Projetos',
+                      child: Column(
+                        children: [
+                          for (final item in _filteredProjects)
+                            _FinanceProjectRow(item: item),
+                        ],
+                      ),
+                    ),
+                  if (_filteredInvoices.isNotEmpty)
+                    CardSection(
+                      title: 'Documentos',
+                      child: Column(
+                        children: [
+                          for (final item in _filteredInvoices)
+                            _FinanceDocumentRow(
+                              item: item,
+                              onPressed: () async {
+                                final updated = await Navigator.of(context)
+                                    .push(
+                                      CupertinoPageRoute<bool>(
+                                        builder: (_) => InvoiceDetailScreen(
+                                          controller: widget.controller,
+                                          invoiceId: item['id'].toString(),
+                                          initialInvoice: item,
+                                        ),
+                                      ),
+                                    );
+                                if (updated == true) {
+                                  await _load();
+                                }
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+                  if (_filteredInstallments.isNotEmpty)
+                    CardSection(
+                      title: 'Parcelas',
+                      child: Column(
+                        children: [
+                          for (final item in _filteredInstallments)
+                            _FinanceInstallmentRow(item: item),
+                        ],
+                      ),
+                    ),
+                  if (_filteredSales.isNotEmpty)
+                    CardSection(
+                      title: 'Intervenções e movimentos',
+                      child: Column(
+                        children: [
+                          for (final item in _filteredSales)
+                            _FinanceRow(item: item),
+                        ],
+                      ),
+                    ),
                 ],
               ),
       ),
@@ -10143,6 +10522,44 @@ class _FinanceStatTile extends StatelessWidget {
   }
 }
 
+class _FinanceFilterButton extends StatelessWidget {
+  const _FinanceFilterButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      color: const Color(0xFFF4F7F8),
+      borderRadius: BorderRadius.circular(14),
+      onPressed: onPressed,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Flexible(
+            child: Text(
+              label,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF0C3E42),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          const Icon(
+            CupertinoIcons.chevron_down,
+            size: 16,
+            color: Color(0xFF0E4D50),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 bool _financeSaleIsPaid(Map<String, dynamic> item) {
   if (item['invoice_status']?.toString() == 'pago') {
     return true;
@@ -10233,6 +10650,239 @@ class _FinanceRow extends StatelessWidget {
                   style: TextStyle(fontSize: 12, color: statusColor),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FinanceProjectRow extends StatelessWidget {
+  const _FinanceProjectRow({required this.item});
+
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    final status = item['status']?.toString();
+    final statusColor = projectStatusColor(status);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: GlassPanel(
+        enableBlur: false,
+        radius: 16,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item['name']?.toString() ?? '—',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${item['client'] ?? '—'} · ${projectStatusLabel(status)}',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    projectStatusLabel(status),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: statusColor,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 12,
+              runSpacing: 6,
+              children: [
+                Text(
+                  'Base: ${money(item['base_amount'])}',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                Text(
+                  'Adjudicação: ${money(item['adjudication_value'])}',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                Text(
+                  'Parcelas: ${money(item['installments_total'])}',
+                  style: const TextStyle(fontSize: 13),
+                ),
+                Text(
+                  'Em falta: ${money(item['remaining_amount'])}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0D4B4F),
+                  ),
+                ),
+              ],
+            ),
+            if ((item['invoice_number']?.toString() ?? '')
+                .trim()
+                .isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Documento: ${item['invoice_number']} · ${item['invoice_status'] ?? '—'}',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF47696B)),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FinanceDocumentRow extends StatelessWidget {
+  const _FinanceDocumentRow({required this.item, required this.onPressed});
+
+  final Map<String, dynamic> item;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final isPaid = item['status']?.toString() == 'pago';
+    final color = isPaid ? const Color(0xFF2E7D57) : const Color(0xFFB26A00);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: CupertinoButton(
+        padding: EdgeInsets.zero,
+        onPressed: onPressed,
+        child: GlassPanel(
+          enableBlur: false,
+          radius: 16,
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      item['number']?.toString() ?? 'Documento',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0C3E42),
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      '${item['project'] ?? '—'} · ${item['client'] ?? '—'} · ${formatDate(item['issued_at'])}',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF47696B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    money(item['total']),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0D4B4F),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    item['status']?.toString() == 'pago' ? 'Pago' : 'Pendente',
+                    style: TextStyle(fontSize: 12, color: color),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FinanceInstallmentRow extends StatelessWidget {
+  const _FinanceInstallmentRow({required this.item});
+
+  final Map<String, dynamic> item;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: GlassPanel(
+        enableBlur: false,
+        radius: 16,
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item['project']?.toString() ?? 'Projeto',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    '${item['client'] ?? '—'} · ${formatDate(item['paid_at'])}',
+                    style: const TextStyle(fontSize: 13),
+                  ),
+                  if ((item['invoice']?.toString() ?? '').trim().isNotEmpty &&
+                      item['invoice']?.toString() != '—') ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      'Documento: ${item['invoice']}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF47696B),
+                      ),
+                    ),
+                  ],
+                  if ((item['note']?.toString() ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      item['note'].toString(),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF47696B),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              money(item['amount']),
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0D4B4F),
+              ),
             ),
           ],
         ),
@@ -11166,15 +11816,22 @@ class _SparkyScreenState extends State<SparkyScreen> {
   final _scrollController = ScrollController();
   bool _loading = false;
 
-  final List<Map<String, String>> _messages = [
-    {
-      'role': 'assistant',
-      'content':
-          'Olá! Sou o Sparky ⚡ O teu assistente do WireDevelop CRM. Em que posso ajudar?',
-    },
-  ];
+  late final List<Map<String, String>> _messages;
 
   final List<Map<String, String>> _history = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _messages = [
+      {
+        'role': 'assistant',
+        'content': widget.controller.isClientUser
+            ? 'Olá! Sou o Sparky ⚡ Posso ajudar com a informação da tua conta e dos teus projetos.'
+            : 'Olá! Sou o Sparky ⚡ O teu assistente do WireDevelop CRM. Em que posso ajudar?',
+      },
+    ];
+  }
 
   Future<void> _send() async {
     final question = _controller.text.trim();

@@ -23,15 +23,7 @@ class ProjectController extends Controller
 
     public function index(Request $request): Response
     {
-        $statusOptions = [
-            ['value' => 'planeamento', 'label' => 'Planeamento'],
-            ['value' => 'em_andamento', 'label' => 'Em Andamento'],
-            ['value' => 'aguardar_conteudos', 'label' => 'Aguardar Conteúdos'],
-            ['value' => 'em_revisao', 'label' => 'Em Revisão'],
-            ['value' => 'concluido', 'label' => 'Concluído'],
-            ['value' => 'pausado', 'label' => 'Pausado'],
-            ['value' => 'cancelado', 'label' => 'Cancelado'],
-        ];
+        $statusOptions = $this->statusOptions();
 
         $allowedStatuses = collect($statusOptions)->pluck('value')->all();
         $status = $request->query('status');
@@ -332,6 +324,28 @@ class ProjectController extends Controller
         return redirect()->route('projects.index')->with('success', 'Projeto atualizado com sucesso.');
     }
 
+    public function updateStatus(Request $request, Project $project): RedirectResponse
+    {
+        $this->ensureProjectOwnership($project);
+        $this->abortIfClientUser();
+
+        $allowedStatuses = collect($this->statusOptions())->pluck('value')->all();
+        $data = $request->validate([
+            'status' => ['required', 'in:'.implode(',', $allowedStatuses)],
+        ]);
+
+        $author = $request->user();
+        $previousStatus = $project->status;
+
+        $project->update([
+            'status' => $data['status'],
+        ]);
+
+        $this->logProjectStatusMessage($project, $previousStatus, $author?->id, $author?->role, false);
+
+        return back()->with('success', 'Estado do projeto atualizado.');
+    }
+
     public function destroy(Project $project): RedirectResponse
     {
         $this->ensureProjectOwnership($project);
@@ -370,6 +384,20 @@ class ProjectController extends Controller
 TEXT;
     }
 
+    private function statusOptions(): array
+    {
+        return [
+            ['value' => 'orcamentado', 'label' => 'Orçamentado'],
+            ['value' => 'planeamento', 'label' => 'Planeamento'],
+            ['value' => 'em_andamento', 'label' => 'Em Andamento'],
+            ['value' => 'aguardar_conteudos', 'label' => 'Aguardar Conteúdos'],
+            ['value' => 'em_revisao', 'label' => 'Em Revisão'],
+            ['value' => 'concluido', 'label' => 'Concluído'],
+            ['value' => 'pausado', 'label' => 'Pausado'],
+            ['value' => 'cancelado', 'label' => 'Cancelado'],
+        ];
+    }
+
     private function logProjectStatusMessage(Project $project, ?string $previousStatus, ?int $userId, ?string $senderRole, bool $isNew): void
     {
         $currentStatus = $project->status;
@@ -394,15 +422,12 @@ TEXT;
 
     private function statusLabel(?string $status): string
     {
-        return match ($status) {
-            'planeamento' => 'Planeamento',
-            'em_andamento' => 'Em Andamento',
-            'aguardar_conteudos' => 'Aguardar Conteúdos',
-            'em_revisao' => 'Em Revisão',
-            'concluido' => 'Concluído',
-            'pausado' => 'Pausado',
-            'cancelado' => 'Cancelado',
-            default => $status ?: 'Sem estado',
-        };
+        foreach ($this->statusOptions() as $option) {
+            if ($option['value'] === $status) {
+                return $option['label'];
+            }
+        }
+
+        return $status ?: 'Sem estado';
     }
 }

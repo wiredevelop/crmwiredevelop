@@ -25,6 +25,7 @@ async function copyText(value) {
 
 function badgeStatus(status) {
     const labels = {
+        orcamentado: 'Orçamentado',
         planeamento: 'Planeamento',
         em_andamento: 'Em andamento',
         aguardar_conteudos: 'Aguardar conteúdos',
@@ -35,6 +36,7 @@ function badgeStatus(status) {
     }
 
     const colors = {
+        orcamentado: 'bg-yellow-100 text-yellow-800 border-yellow-300',
         concluido: 'bg-emerald-100 text-emerald-800 border-emerald-300',
         em_andamento: 'bg-blue-100 text-blue-800 border-blue-300',
         em_revisao: 'bg-amber-100 text-amber-800 border-amber-300',

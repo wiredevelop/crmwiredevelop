@@ -5,6 +5,17 @@ import { Head, useForm, Link, usePage, router } from '@inertiajs/vue3'
 import { computed, watch, ref } from 'vue'
 
 const { project, clients, catalog } = usePage().props
+const authUser = usePage().props.auth?.user
+const trackingStatuses = [
+    { value: 'orcamentado', label: 'Orçamentado' },
+    { value: 'planeamento', label: 'Planeamento' },
+    { value: 'em_andamento', label: 'Em Andamento' },
+    { value: 'aguardar_conteudos', label: 'Aguardar Conteúdos' },
+    { value: 'em_revisao', label: 'Em Revisão' },
+    { value: 'concluido', label: 'Concluído' },
+    { value: 'pausado', label: 'Pausado' },
+    { value: 'cancelado', label: 'Cancelado' },
+]
 
 const quote = project.quote ?? {}
 const existingImports = (quote.quote_products || quote.quoteProducts || []).map(qp => ({
@@ -139,6 +150,7 @@ const messageForm = useForm({
 const sendingMessage = ref(false)
 const messageAttachment = ref(null)
 const messageAttachmentInput = ref(null)
+const updatingStatus = ref(false)
 
 const resetMessageComposer = () => {
     messageForm.reset()
@@ -246,6 +258,23 @@ const submit = () => {
     form.put(`/projects/${project.id}`)
 }
 
+const setTrackingStatus = (status) => {
+    if (updatingStatus.value || form.status === status) return
+
+    updatingStatus.value = true
+    router.post(`/projects/${project.id}/status`, {
+        status,
+    }, {
+        preserveScroll: true,
+        onSuccess: () => {
+            form.status = status
+        },
+        onFinish: () => {
+            updatingStatus.value = false
+        },
+    })
+}
+
 const destroyProject = () => {
     if (!confirm('Apagar este projeto? Isto não pode ser revertido.')) return
     router.delete(`/projects/${project.id}`)
@@ -301,6 +330,7 @@ const destroyProject = () => {
                     <div>
                         <label class="block text-sm font-medium mb-1">Status</label>
                         <select v-model="form.status" class="w-full border rounded p-2">
+                            <option value="orcamentado">Orçamentado</option>
                             <option value="planeamento">Planeamento</option>
                             <option value="em_andamento">Em Andamento</option>
                             <option value="aguardar_conteudos">Aguardar Conteúdos</option>
@@ -320,6 +350,117 @@ const destroyProject = () => {
                 <div>
                     <label class="block text-sm font-medium mb-1">Descrição</label>
                     <RichTextEditor v-model="form.description" placeholder="Descrição do projeto" />
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded shadow space-y-4">
+                <div class="flex items-center justify-between gap-3">
+                    <h2 class="font-semibold text-lg">Tracking & Comunicação</h2>
+                    <span class="text-xs text-gray-500" v-if="updatingStatus">A atualizar estado...</span>
+                </div>
+
+                <div class="flex flex-wrap gap-2">
+                    <button
+                        v-for="status in trackingStatuses"
+                        :key="status.value"
+                        type="button"
+                        class="rounded-full border px-3 py-2 text-sm transition"
+                        :class="form.status === status.value ? 'border-[#015557] bg-[#015557] text-white' : 'border-gray-300 bg-white text-gray-700'"
+                        :disabled="updatingStatus || authUser?.role !== 'admin'"
+                        @click="setTrackingStatus(status.value)"
+                    >
+                        {{ status.label }}
+                    </button>
+                </div>
+
+                <div v-if="projectMessages.length" class="space-y-3">
+                    <div
+                        v-for="message in projectMessages"
+                        :key="message.id"
+                        class="rounded border p-4"
+                        :class="message.sender_role === 'client' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'"
+                    >
+                        <div class="flex items-center justify-between gap-3">
+                            <div class="font-medium text-sm">
+                                {{ message.sender_name || (message.sender_role === 'client' ? 'Cliente' : 'WireDevelop') }}
+                                <span class="ml-2 text-xs uppercase tracking-wide text-gray-500">{{ message.type }}</span>
+                            </div>
+                            <div class="text-xs text-gray-500">
+                                {{ new Date(message.created_at).toLocaleString('pt-PT') }}
+                            </div>
+                        </div>
+                        <div class="mt-2 whitespace-pre-wrap text-sm text-gray-700">{{ message.body }}</div>
+                        <div v-if="message.meta?.attachment?.url" class="mt-3">
+                            <img
+                                :src="message.meta.attachment.url"
+                                :alt="message.meta.attachment.filename || 'Imagem anexada'"
+                                class="max-h-56 rounded border object-cover"
+                            />
+                            <div class="mt-1 text-xs text-gray-500">
+                                {{ message.meta.attachment.filename || 'Imagem anexada' }}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else class="text-sm text-gray-500">
+                    Sem mensagens ainda. Usa esta área para alinhar o desenvolvimento com o cliente.
+                </div>
+
+                <div class="space-y-3 border-t pt-4">
+                    <input
+                        ref="messageAttachmentInput"
+                        type="file"
+                        accept="image/*"
+                        class="hidden"
+                        @change="handleMessageImageChange"
+                    />
+                    <textarea
+                        v-model="messageForm.body"
+                        rows="4"
+                        class="w-full border rounded p-3"
+                        placeholder="Escreve aqui atualização, pedido ou resposta..."
+                    />
+
+                    <div v-if="messageAttachment" class="rounded border bg-gray-50 p-3 text-sm">
+                        <div class="font-medium">{{ messageAttachment.filename }}</div>
+                        <img
+                            v-if="messageAttachment.preview_url"
+                            :src="messageAttachment.preview_url"
+                            alt="Pré-visualização"
+                            class="mt-2 max-h-48 rounded border object-cover"
+                        />
+                    </div>
+
+                    <div class="flex justify-end gap-2">
+                        <button
+                            type="button"
+                            class="text-sm border px-3 py-2 rounded hover:bg-gray-50 disabled:opacity-50"
+                            :disabled="sendingMessage"
+                            @click="sendProjectMessage({
+                                type: 'proof_request',
+                                body: 'Pedido de prova: por favor partilha atualização, captura de ecrã ou vídeo deste ponto do projeto.'
+                            })"
+                        >
+                            Pedir prova
+                        </button>
+                        <button
+                            type="button"
+                            class="border px-4 py-2 rounded hover:bg-gray-50 disabled:opacity-50"
+                            :disabled="sendingMessage"
+                            @click="openMessageImagePicker"
+                        >
+                            Anexar imagem
+                        </button>
+                        <button
+                            type="button"
+                            class="bg-[#015557] text-white px-4 py-2 rounded hover:bg-[#014244] disabled:opacity-50"
+                            :disabled="sendingMessage || (!messageForm.body.trim() && !messageAttachment)"
+                            @click="sendProjectMessage()"
+                        >
+                            {{ sendingMessage ? 'A enviar...' : 'Enviar mensagem' }}
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -486,104 +627,6 @@ const destroyProject = () => {
             <div class="bg-white p-6 rounded shadow">
                 <h2 class="font-semibold text-lg mb-2">Prazos & Condições</h2>
                 <textarea v-model="form.terms" rows="8" class="w-full border rounded p-2 font-mono"></textarea>
-            </div>
-
-            <div class="bg-white p-6 rounded shadow space-y-4">
-                <div class="flex items-center justify-between gap-3">
-                    <h2 class="font-semibold text-lg">Comunicação do projeto</h2>
-                    <div class="flex items-center gap-2">
-                        <button
-                            type="button"
-                            class="text-sm border px-3 py-1 rounded hover:bg-gray-50 disabled:opacity-50"
-                            :disabled="sendingMessage"
-                            @click="sendProjectMessage({
-                                type: 'proof_request',
-                                body: 'Pedido de prova: por favor partilha atualização, captura de ecrã ou vídeo deste ponto do projeto.'
-                            })"
-                        >
-                            Pedir prova
-                        </button>
-                    </div>
-                </div>
-
-                <div v-if="projectMessages.length" class="space-y-3">
-                    <div
-                        v-for="message in projectMessages"
-                        :key="message.id"
-                        class="rounded border p-4"
-                        :class="message.sender_role === 'client' ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50'"
-                    >
-                        <div class="flex items-center justify-between gap-3">
-                            <div class="font-medium text-sm">
-                                {{ message.sender_name || (message.sender_role === 'client' ? 'Cliente' : 'WireDevelop') }}
-                                <span class="ml-2 text-xs uppercase tracking-wide text-gray-500">{{ message.type }}</span>
-                            </div>
-                            <div class="text-xs text-gray-500">
-                                {{ new Date(message.created_at).toLocaleString('pt-PT') }}
-                            </div>
-                        </div>
-                        <div class="mt-2 whitespace-pre-wrap text-sm text-gray-700">{{ message.body }}</div>
-                        <div v-if="message.meta?.attachment?.url" class="mt-3">
-                            <img
-                                :src="message.meta.attachment.url"
-                                :alt="message.meta.attachment.filename || 'Imagem anexada'"
-                                class="max-h-56 rounded border object-cover"
-                            />
-                            <div class="mt-1 text-xs text-gray-500">
-                                {{ message.meta.attachment.filename || 'Imagem anexada' }}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div v-else class="text-sm text-gray-500">
-                    Sem mensagens ainda. Usa esta área para alinhar o desenvolvimento com o cliente.
-                </div>
-
-                <div class="space-y-3 border-t pt-4">
-                    <input
-                        ref="messageAttachmentInput"
-                        type="file"
-                        accept="image/*"
-                        class="hidden"
-                        @change="handleMessageImageChange"
-                    />
-                    <textarea
-                        v-model="messageForm.body"
-                        rows="4"
-                        class="w-full border rounded p-3"
-                        placeholder="Escreve aqui atualização, pedido ou resposta..."
-                    />
-
-                    <div v-if="messageAttachment" class="rounded border bg-gray-50 p-3 text-sm">
-                        <div class="font-medium">{{ messageAttachment.filename }}</div>
-                        <img
-                            v-if="messageAttachment.preview_url"
-                            :src="messageAttachment.preview_url"
-                            alt="Pré-visualização"
-                            class="mt-2 max-h-48 rounded border object-cover"
-                        />
-                    </div>
-
-                    <div class="flex justify-end gap-2">
-                        <button
-                            type="button"
-                            class="border px-4 py-2 rounded hover:bg-gray-50 disabled:opacity-50"
-                            :disabled="sendingMessage"
-                            @click="openMessageImagePicker"
-                        >
-                            Anexar imagem
-                        </button>
-                        <button
-                            type="button"
-                            class="bg-[#015557] text-white px-4 py-2 rounded hover:bg-[#014244] disabled:opacity-50"
-                            :disabled="sendingMessage || (!messageForm.body.trim() && !messageAttachment)"
-                            @click="sendProjectMessage()"
-                        >
-                            {{ sendingMessage ? 'A enviar...' : 'Enviar mensagem' }}
-                        </button>
-                    </div>
-                </div>
             </div>
 
             <div class="flex justify-end">

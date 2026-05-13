@@ -19,7 +19,7 @@ class SparkyController extends Controller
         ]);
 
         try {
-            $answer = $sparky->ask($validated['question'], $validated['history'] ?? []);
+            $answer = $sparky->ask($validated['question'], $validated['history'] ?? [], $request->user());
 
             return response()->json(['answer' => $answer]);
         } catch (\RuntimeException $e) {

@@ -33,6 +33,7 @@ const isAdminUser = user?.role === 'admin'
                     </Link>
                     <Link href="/projects" class="block px-4 py-2 rounded hover:bg-white/10">Projetos</Link>
                     <template v-if="isClientUser">
+                        <Link href="/finance" class="block px-4 py-2 rounded hover:bg-white/10">Financeiro</Link>
                         <Link href="/wallet" class="block px-4 py-2 rounded hover:bg-white/10">Carteira</Link>
                         <Link href="/invoices" class="block px-4 py-2 rounded hover:bg-white/10">Documentos</Link>
                     </template>
@@ -79,5 +80,5 @@ const isAdminUser = user?.role === 'admin'
         </div>
     </div>
 
-    <SparkyChat v-if="isAdminUser" />
+    <SparkyChat />
 </template>

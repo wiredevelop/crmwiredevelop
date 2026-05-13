@@ -13,12 +13,23 @@ class StoreProjectRequest extends FormRequest
 
     public function rules(): array
     {
+        $statuses = [
+            'orcamentado',
+            'planeamento',
+            'em_andamento',
+            'aguardar_conteudos',
+            'em_revisao',
+            'concluido',
+            'pausado',
+            'cancelado',
+        ];
+
         return [
             'client_id' => ['required', 'integer', 'exists:clients,id'],
             'name' => ['required', 'string', 'max:255'],
             'type' => ['required', 'string', 'max:255'],
             'custom_type' => ['nullable', 'string', 'max:255'],
-            'status' => ['required', 'string', 'max:255'],
+            'status' => ['required', 'string', 'in:'.implode(',', $statuses)],
 
             'technologies' => ['nullable', 'string'],
             'description' => ['nullable', 'string'],

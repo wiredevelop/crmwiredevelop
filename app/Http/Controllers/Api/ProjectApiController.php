@@ -117,6 +117,30 @@ class ProjectApiController extends Controller
         ], 'Projeto atualizado com sucesso.');
     }
 
+    public function updateStatus(Request $request, Project $project): JsonResponse
+    {
+        $this->ensureProjectOwnership($project);
+        $this->abortIfClientUser();
+
+        $allowedStatuses = collect($this->statusOptions())->pluck('value')->all();
+        $data = $request->validate([
+            'status' => ['required', 'in:'.implode(',', $allowedStatuses)],
+        ]);
+
+        $author = $request->user();
+        $previousStatus = $project->status;
+
+        $project->update([
+            'status' => $data['status'],
+        ]);
+
+        $this->logProjectStatusMessage($project, $previousStatus, $author?->id, $author?->role, false);
+
+        return $this->success([
+            'project' => new ProjectResource($project->fresh()->loadSum('installments', 'amount')->load(['client', 'quote.quoteProducts', 'invoice', 'messages.user'])),
+        ], 'Estado do projeto atualizado.');
+    }
+
     public function destroy(Project $project): JsonResponse
     {
         $this->ensureProjectOwnership($project);
@@ -320,6 +344,7 @@ TEXT;
     private function statusOptions(): array
     {
         return [
+            ['value' => 'orcamentado', 'label' => 'Orçamentado'],
             ['value' => 'planeamento', 'label' => 'Planeamento'],
             ['value' => 'em_andamento', 'label' => 'Em Andamento'],
             ['value' => 'aguardar_conteudos', 'label' => 'Aguardar Conteúdos'],

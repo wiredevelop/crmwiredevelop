@@ -124,6 +124,37 @@ class PushNotificationService
             ->get();
     }
 
+    public function usersForClient(?int $clientId): Collection
+    {
+        if (! $clientId) {
+            return collect();
+        }
+
+        return User::query()
+            ->where('role', User::ROLE_CLIENT)
+            ->where('client_id', $clientId)
+            ->get();
+    }
+
+    public function enabledTokenCountForUsers(iterable $users): int
+    {
+        $userIds = collect($users)
+            ->map(fn ($user) => $user instanceof User ? $user->id : $user)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($userIds->isEmpty()) {
+            return 0;
+        }
+
+        return DeviceToken::query()
+            ->whereIn('user_id', $userIds)
+            ->where('notifications_enabled', true)
+            ->distinct()
+            ->count('token');
+    }
+
     public function usersForAdmins(?int $excludingUserId = null): Collection
     {
         return User::query()

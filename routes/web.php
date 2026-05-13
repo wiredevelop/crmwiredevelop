@@ -29,6 +29,9 @@ Route::get('/checkout/stripe/cancelado', [StripeCheckoutStatusController::class,
 Route::get('/dashboard', [DashboardController::class, 'index'])
     ->middleware(['auth', 'verified', 'force.password.change'])
     ->name('dashboard');
+Route::get('/dashboard/pending', [DashboardController::class, 'pending'])
+    ->middleware(['auth', 'verified', 'force.password.change'])
+    ->name('dashboard.pending');
 
 // ROTAS QUE EXIGEM AUTENTICAÇÃO
 Route::middleware(['auth', 'force.password.change'])->group(function () {
@@ -63,6 +66,9 @@ Route::middleware(['auth', 'force.password.change'])->group(function () {
 
     // Projects
     Route::resource('projects', ProjectController::class);
+    Route::post('/projects/{project}/status', [ProjectController::class, 'updateStatus'])
+        ->middleware('admin.only')
+        ->name('projects.status');
     Route::get('/projects/{project}/credentials', [ProjectCredentialController::class, 'index'])
         ->name('projects.credentials.index');
     Route::post('/projects/{project}/credentials', [ProjectCredentialController::class, 'store'])
@@ -122,7 +128,6 @@ Route::middleware(['auth', 'force.password.change'])->group(function () {
 
     // Financeiro
     Route::get('/finance', [FinanceController::class, 'index'])
-        ->middleware('admin.only')
         ->name('finance.index');
     Route::post('/finance/sales/{type}/{id}/installment', [FinanceController::class, 'updateInstallment'])
         ->middleware('admin.only')
@@ -191,9 +196,7 @@ Route::middleware(['auth', 'force.password.change'])->group(function () {
         ->name('wallets.packs.stripe');
 
     // Sparky AI
-    Route::post('/sparky/ask', [SparkyController::class, 'ask'])
-        ->middleware('admin.only')
-        ->name('sparky.ask');
+    Route::post('/sparky/ask', [SparkyController::class, 'ask'])->name('sparky.ask');
 });
 
 require __DIR__.'/auth.php';

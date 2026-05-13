@@ -71,6 +71,7 @@ Route::prefix('v1')->as('api.')->group(function () {
 
         Route::get('/projects/options', [ProjectApiController::class, 'options']);
         Route::apiResource('projects', ProjectApiController::class);
+        Route::post('/projects/{project}/status', [ProjectApiController::class, 'updateStatus'])->middleware('admin.only');
         Route::post('/projects/{project}/messages', [ProjectMessageApiController::class, 'store']);
         Route::get('/projects/{project}/credentials', [ProjectApiController::class, 'credentials']);
         Route::post('/projects/{project}/credentials', [ProjectApiController::class, 'storeCredential']);
@@ -107,7 +108,7 @@ Route::prefix('v1')->as('api.')->group(function () {
         Route::post('/settings/sales-goal', [SettingsApiController::class, 'updateSalesGoal'])->middleware('admin.only');
         Route::post('/settings/ide-toggle', [SettingsApiController::class, 'toggleIde'])->middleware('admin.only');
 
-        Route::get('/finance', [FinanceApiController::class, 'index'])->middleware('admin.only');
+        Route::get('/finance', [FinanceApiController::class, 'index']);
         Route::post('/finance/installments', [FinanceApiController::class, 'storeInstallment'])->middleware('admin.only');
         Route::delete('/finance/installments/{installment}', [FinanceApiController::class, 'destroyInstallment'])->middleware('admin.only');
         Route::post('/finance/sales/{type}/{id}/installment', [FinanceApiController::class, 'updateInstallment'])->middleware('admin.only');
@@ -128,6 +129,6 @@ Route::prefix('v1')->as('api.')->group(function () {
         Route::post('/wallets/packs', [WalletApiController::class, 'storePack'])->middleware('admin.only');
         Route::post('/wallets/products', [WalletApiController::class, 'storeProduct'])->middleware('admin.only');
 
-        Route::post('/sparky/ask', [SparkyController::class, 'ask'])->middleware('admin.only');
+        Route::post('/sparky/ask', [SparkyController::class, 'ask']);
     });
 });

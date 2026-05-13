@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Api\Concerns\RespondsWithJson;
+use App\Http\Controllers\Concerns\InteractsWithClientPortalUsers;
 use App\Http\Controllers\Controller;
 use App\Models\Installment;
 use App\Models\Invoice;
@@ -16,13 +17,14 @@ use Illuminate\Support\Arr;
 
 class FinanceApiController extends Controller
 {
+    use InteractsWithClientPortalUsers;
     use RespondsWithJson;
 
     public function index(Request $request): JsonResponse
     {
         $year = $this->selectedYear($request);
 
-        $projectSales = Project::with(['client:id,name', 'quote:id,project_id,price_development,price_domain_first_year,price_hosting_first_year,price_maintenance_monthly,include_domain,include_hosting', 'invoice:id,project_id,number,total,status,issued_at,paid_at,payment_method,payment_account,created_at'])
+        $projectSales = $this->scopeByClient(Project::with(['client:id,name', 'quote:id,project_id,price_development,price_domain_first_year,price_hosting_first_year,price_maintenance_monthly,include_domain,include_hosting', 'invoice:id,project_id,number,total,status,issued_at,paid_at,payment_method,payment_account,created_at']))
             ->where('status', 'concluido')
             ->where(function ($query) use ($year) {
                 $query
@@ -75,6 +77,11 @@ class FinanceApiController extends Controller
             ->toBase();
 
         $productSales = WalletTransaction::with(['wallet.client:id,name', 'product:id,name,type', 'packItem:id,hours,pack_price,validity_months', 'intervention:id,type,notes,finish_notes,total_seconds,hourly_rate,is_pack', 'invoice:id,number,total,status,issued_at,paid_at,payment_method,payment_account'])
+            ->whereHas('wallet', function ($query) {
+                if ($this->isClientUser()) {
+                    $query->where('client_id', $this->currentClientId());
+                }
+            })
             ->where(function ($query) {
                 $query->where('type', 'purchase')
                     ->orWhere(function ($subQuery) {
@@ -157,7 +164,9 @@ class FinanceApiController extends Controller
             })
             ->toBase();
 
-        $terminalSales = TerminalPayment::query()
+        $terminalSales = $this->isClientUser()
+            ? collect()
+            : TerminalPayment::query()
             ->with('user:id,name')
             ->where(function ($query) use ($year) {
                 $query
@@ -201,14 +210,25 @@ class FinanceApiController extends Controller
             ->toBase();
 
         $sales = $projectSales->merge($productSales)->merge($terminalSales)->sortByDesc('sort_at')->values()->map(fn ($item) => Arr::except($item, ['sort_at']))->toArray();
-        $projects = Project::with('client:id,name')->where('status', '!=', 'cancelado')->orderBy('name')->get(['id', 'client_id', 'name', 'status'])->map(fn ($project) => [
+        $projects = $this->scopeByClient(Project::with(['client:id,name', 'quote', 'invoice'])->withSum('installments', 'amount'))
+            ->where('status', '!=', 'cancelado')
+            ->orderBy('name')
+            ->get(['id', 'client_id', 'name', 'status', 'updated_at'])
+            ->map(fn ($project) => [
             'id' => $project->id,
             'name' => $project->name,
             'status' => $project->status,
             'client_id' => $project->client_id,
             'client' => $project->client?->name ?? '—',
+            'base_amount' => (float) ($project->quote?->price_development ?? 0),
+            'adjudication_value' => (float) ($project->quote?->price_development ?? 0) * ((float) ($project->quote?->adjudication_percent ?? 0) / 100),
+            'installments_total' => (float) ($project->installments_sum_amount ?? 0),
+            'remaining_amount' => max(0, (float) ($project->quote?->price_development ?? 0) - ((float) ($project->quote?->price_development ?? 0) * ((float) ($project->quote?->adjudication_percent ?? 0) / 100)) - (float) ($project->installments_sum_amount ?? 0)),
+            'invoice_number' => $project->invoice?->number,
+            'invoice_status' => $project->invoice?->status,
+            'updated_at' => $project->updated_at?->toDateString(),
         ])->toArray();
-        $installments = Installment::with(['project:id,name', 'client:id,name', 'invoice:id,number'])->whereYear('paid_at', $year)->orderByDesc('paid_at')->take(200)->get()->map(fn ($installment) => [
+        $installments = $this->scopeByClient(Installment::with(['project:id,name', 'client:id,name', 'invoice:id,number']))->whereYear('paid_at', $year)->orderByDesc('paid_at')->take(200)->get()->map(fn ($installment) => [
             'id' => $installment->id,
             'project_id' => $installment->project_id,
             'project' => $installment->project?->name ?? '—',
@@ -220,10 +240,12 @@ class FinanceApiController extends Controller
             'note' => $installment->note,
             'paid_at' => $installment->paid_at?->toDateString(),
         ])->toArray();
-        $invoices = Invoice::query()->whereYear('issued_at', $year)->orderByDesc('issued_at')->take(500)->get(['id', 'project_id', 'client_id', 'number', 'total', 'status', 'issued_at'])->map(fn ($invoice) => [
+        $invoices = $this->scopeByClient(Invoice::with(['project:id,name', 'client:id,name']))->whereYear('issued_at', $year)->orderByDesc('issued_at')->take(500)->get(['id', 'project_id', 'client_id', 'number', 'total', 'status', 'issued_at'])->map(fn ($invoice) => [
             'id' => $invoice->id,
             'project_id' => $invoice->project_id,
             'client_id' => $invoice->client_id,
+            'project' => $invoice->project?->name ?? '—',
+            'client' => $invoice->client?->name ?? '—',
             'number' => $invoice->number,
             'total' => (float) $invoice->total,
             'status' => $invoice->status,
@@ -231,6 +253,7 @@ class FinanceApiController extends Controller
         ])->toArray();
 
         return $this->success([
+            'is_client_user' => $this->isClientUser(),
             'sales' => $sales,
             'projects' => $projects,
             'installments' => $installments,

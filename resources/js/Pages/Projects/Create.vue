@@ -15,7 +15,7 @@ const form = useForm({
     name: '',
     type: 'website',
     custom_type: '',
-    status: 'planeamento',
+    status: 'orcamentado',
 
     technologies: '',
     description: '',

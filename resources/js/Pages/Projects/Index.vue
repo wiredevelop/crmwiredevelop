@@ -21,6 +21,16 @@ const adjudicationValue = (project) => {
     return baseAmount(project) * (Number(project.quote?.adjudication_percent ?? 0) / 100)
 }
 const remainingAmount = (project) => Math.max(0, baseAmount(project) - adjudicationValue(project) - installmentsTotal(project))
+const statusLabel = (status) => ({
+    orcamentado: 'Orçamentado',
+    planeamento: 'Planeamento',
+    em_andamento: 'Em Andamento',
+    aguardar_conteudos: 'Aguardar Conteúdos',
+    em_revisao: 'Em Revisão',
+    concluido: 'Concluído',
+    pausado: 'Pausado',
+    cancelado: 'Cancelado',
+}[status] || status)
 </script>
 
 <template>
@@ -75,7 +85,7 @@ const remainingAmount = (project) => Math.max(0, baseAmount(project) - adjudicat
                         <td class="py-2 px-3">{{ p.client?.name }}</td>
 
                         <td class="py-2 px-3">{{ p.type }}</td>
-                        <td class="py-2 px-3">{{ p.status }}</td>
+                        <td class="py-2 px-3">{{ statusLabel(p.status) }}</td>
 
                         <td class="py-2 px-3">
                             <div v-if="isClientUser" class="space-y-1">

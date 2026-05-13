@@ -1,6 +1,9 @@
 <script setup>
 import { ref, nextTick, watch } from 'vue'
 import axios from 'axios'
+import { usePage } from '@inertiajs/vue3'
+
+const isClientUser = usePage().props.auth?.user?.role === 'client'
 
 const open = ref(false)
 const question = ref('')
@@ -10,7 +13,7 @@ const messagesEl = ref(null)
 const history = ref([])
 
 const messages = ref([
-    { role: 'assistant', content: 'Olá! Sou o **Sparky** ⚡ O teu assistente do WireDevelop CRM. Em que posso ajudar?' }
+    { role: 'assistant', content: isClientUser ? 'Olá! Sou o **Sparky** ⚡ Posso ajudar com a tua conta, os teus projetos e os teus documentos.' : 'Olá! Sou o **Sparky** ⚡ O teu assistente do WireDevelop CRM. Em que posso ajudar?' }
 ])
 
 function toggle() {

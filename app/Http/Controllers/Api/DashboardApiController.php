@@ -265,8 +265,16 @@ class DashboardApiController extends Controller
 
     private function pendingValuesTotal(): float
     {
-        return $this->scopeByClient(Project::with(['quote'])->withSum('installments', 'amount')->where('is_hidden', false))
-            ->whereNotIn('status', ['concluido', 'cancelado'])
+        $projectTotal = $this->scopeByClient(
+            Project::with(['quote', 'invoice'])
+                ->withSum('installments', 'amount')
+                ->where('is_hidden', false)
+        )
+            ->whereNotIn('status', ['orcamentado', 'concluido', 'cancelado'])
+            ->where(function ($query) {
+                $query->whereDoesntHave('invoice')
+                    ->orWhereHas('invoice', fn ($invoiceQuery) => $invoiceQuery->where('status', '!=', 'pendente'));
+            })
             ->get()
             ->sum(function (Project $project) {
                 $baseAmount = (float) ($project->quote?->price_development ?? 0);
@@ -275,5 +283,19 @@ class DashboardApiController extends Controller
 
                 return max(0, $baseAmount - $adjudicationValue - $installmentsTotal);
             });
+
+        $documentTotal = $this->scopeByClient(Invoice::query())
+            ->where('status', 'pendente')
+            ->sum('total');
+
+        $interventionTotal = WalletTransaction::query()
+            ->whereHas('wallet', fn ($query) => $query->where('client_id', $this->currentClientId()))
+            ->whereNotNull('intervention_id')
+            ->whereNull('invoice_id')
+            ->whereNotNull('amount')
+            ->where('amount', '>', 0)
+            ->sum('amount');
+
+        return round((float) $projectTotal + (float) $documentTotal + (float) $interventionTotal, 2);
     }
 }

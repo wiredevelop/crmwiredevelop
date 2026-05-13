@@ -37,10 +37,19 @@ const shortcuts = [
 ]
 
 const page = usePage()
+const isClientUser = computed(() => page.props.isClientUser ?? page.props.auth?.user?.role === 'client')
 const sales = computed(() => page.props.sales ?? [])
 const projects = computed(() => page.props.projects ?? [])
 const installments = computed(() => page.props.installments ?? [])
 const invoices = computed(() => page.props.invoices ?? [])
+const financeSearch = ref('')
+const financeType = ref('all')
+const financeStatus = ref('all')
+const visibleShortcuts = computed(() =>
+    isClientUser.value
+        ? shortcuts.filter((item) => ['Documentos'].includes(item.title))
+        : shortcuts
+)
 const toastMessage = ref('')
 const toastVisible = ref(false)
 const selectedItems = ref([])
@@ -86,10 +95,58 @@ const clientGroups = computed(() => {
         .sort((a, b) => a.name.localeCompare(b.name))
 })
 
+const normalizeText = (value) => JSON.stringify(value ?? {}).toLowerCase()
+
+const matchesFinanceFilters = (item) => {
+    const text = financeSearch.value.trim().toLowerCase()
+    const type = financeType.value
+    const status = financeStatus.value
+    const haystack = normalizeText(item)
+
+    if (text && !haystack.includes(text)) {
+        return false
+    }
+
+    if (type !== 'all') {
+        const itemType = item.type?.toString()?.toLowerCase() || ''
+        if (type === 'project' && item.source !== 'project') return false
+        if (type === 'intervention' && itemType !== 'intervenção') return false
+        if (type === 'document' && !item.number) return false
+        if (type === 'installment' && item.paid_at === undefined) return false
+    }
+
+    if (status !== 'all') {
+        const invoiceStatus = item.invoice_status || item.status || ''
+        if (status === 'paid' && invoiceStatus !== 'pago') return false
+        if (status === 'pending' && invoiceStatus !== 'pendente') return false
+        if (status === 'uninvoiced' && (item.invoice_id || item.invoiced || item.to_invoice)) return false
+        if (status === 'budgeted' && item.status !== 'orcamentado') return false
+    }
+
+    return true
+}
+
 const filteredSales = computed(() => {
-    if (!activeClientId.value) return []
-    return clientGroups.value.find((group) => group.id === activeClientId.value)?.sales || []
+    const base = isClientUser.value
+        ? (sales.value || [])
+        : (activeClientId.value
+            ? clientGroups.value.find((group) => group.id === activeClientId.value)?.sales || []
+            : [])
+
+    return base.filter(matchesFinanceFilters)
 })
+
+const filteredProjects = computed(() =>
+    (projects.value || []).filter(matchesFinanceFilters)
+)
+
+const filteredInvoices = computed(() =>
+    (invoices.value || []).filter(matchesFinanceFilters)
+)
+
+const filteredInstallments = computed(() =>
+    (installments.value || []).filter(matchesFinanceFilters)
+)
 
 const resolveSource = (sale) => {
     if (sale.source) {
@@ -447,12 +504,12 @@ const removeInstallment = (installment) => {
             <div class="bg-white rounded shadow p-6">
                 <h1 class="text-2xl font-semibold">Financeiro</h1>
                 <p class="text-sm text-gray-500 mt-2">
-                    Atalhos rapidos para toda a gestao financeira.
+                    {{ isClientUser ? 'Consulta detalhada de projetos, documentos, intervenções e valores.' : 'Atalhos rapidos para toda a gestao financeira.' }}
                 </p>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <div v-for="item in shortcuts" :key="item.title" class="bg-white rounded shadow p-5 flex flex-col">
+            <div v-if="visibleShortcuts.length" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div v-for="item in visibleShortcuts" :key="item.title" class="bg-white rounded shadow p-5 flex flex-col">
                     <div class="flex-1">
                         <h2 class="text-lg font-semibold">{{ item.title }}</h2>
                         <p class="text-sm text-gray-500 mt-2">{{ item.description }}</p>
@@ -462,6 +519,35 @@ const removeInstallment = (installment) => {
                         <Link :href="item.href" class="text-sm text-[#015557] hover:underline">
                             {{ item.action }}
                         </Link>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded shadow p-6">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Pesquisar</label>
+                        <input v-model="financeSearch" type="text" class="w-full border rounded px-3 py-2 text-sm" placeholder="Projeto, documento, intervenção..." />
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Tipo</label>
+                        <select v-model="financeType" class="w-full border rounded px-3 py-2 text-sm">
+                            <option value="all">Todos</option>
+                            <option value="project">Projetos</option>
+                            <option value="intervention">Intervenções</option>
+                            <option value="document">Documentos</option>
+                            <option value="installment">Parcelas</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Estado</label>
+                        <select v-model="financeStatus" class="w-full border rounded px-3 py-2 text-sm">
+                            <option value="all">Todos</option>
+                            <option value="paid">Pago</option>
+                            <option value="pending">Pendente</option>
+                            <option value="uninvoiced">Não faturado</option>
+                            <option value="budgeted">Orçamentado</option>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -482,7 +568,7 @@ const removeInstallment = (installment) => {
                     </div>
                 </div>
 
-                <form class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6" @submit.prevent="submitInstallment">
+                <form v-if="!isClientUser" class="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6" @submit.prevent="submitInstallment">
                     <div class="lg:col-span-2">
                         <label class="block text-xs text-gray-500 mb-1">Projeto</label>
                         <select v-model="installmentForm.project_id" class="w-full border rounded px-3 py-2 text-sm" required>
@@ -549,7 +635,7 @@ const removeInstallment = (installment) => {
                     </div>
                 </form>
 
-                <div v-if="installments.length" class="overflow-x-auto">
+                <div v-if="filteredInstallments.length" class="overflow-x-auto">
                     <table class="min-w-[760px] w-full text-left text-sm">
                         <thead>
                             <tr class="bg-gray-50 border-b">
@@ -563,7 +649,7 @@ const removeInstallment = (installment) => {
                             </tr>
                         </thead>
                         <tbody>
-                            <tr v-for="installment in installments" :key="installment.id" class="border-b">
+                            <tr v-for="installment in filteredInstallments" :key="installment.id" class="border-b">
                                 <td class="py-2 px-3">{{ installment.project }}</td>
                                 <td class="py-2 px-3">{{ installment.client }}</td>
                                 <td class="py-2 px-3">{{ formatAmount(installment.amount) }} €</td>
@@ -572,6 +658,7 @@ const removeInstallment = (installment) => {
                                 <td class="py-2 px-3">{{ installment.note || '—' }}</td>
                                 <td class="py-2 px-3 text-right">
                                     <button
+                                        v-if="!isClientUser"
                                         type="button"
                                         class="text-xs text-red-600 hover:underline"
                                         @click="removeInstallment(installment)"
@@ -587,7 +674,7 @@ const removeInstallment = (installment) => {
                 <p v-else class="text-sm text-gray-500">Sem parcelas registadas.</p>
             </div>
 
-                <div v-if="clientGroups.length" class="flex flex-wrap gap-2 mb-4">
+                <div v-if="!isClientUser && clientGroups.length" class="flex flex-wrap gap-2 mb-4">
                     <button
                         v-for="group in clientGroups"
                         :key="group.id"
@@ -606,7 +693,7 @@ const removeInstallment = (installment) => {
                     </button>
                 </div>
 
-                <div class="flex flex-wrap items-center gap-3 mb-4 text-sm">
+                <div v-if="!isClientUser" class="flex flex-wrap items-center gap-3 mb-4 text-sm">
                     <select v-model="bulkAction" class="border rounded px-3 py-2 text-sm">
                         <option value="">Acoes em massa</option>
                         <option value="invoice">Faturar selecionados</option>
@@ -629,7 +716,7 @@ const removeInstallment = (installment) => {
                     <table class="min-w-[980px] w-full text-left text-sm">
                         <thead>
                             <tr class="bg-gray-50 border-b">
-                                <th class="py-2 px-2 w-10">
+                                <th v-if="!isClientUser" class="py-2 px-2 w-10">
                                     <input
                                         type="checkbox"
                                         class="rounded border-gray-300"
@@ -644,8 +731,8 @@ const removeInstallment = (installment) => {
                                 <th class="py-2 px-2">Valor</th>
                                 <th class="py-2 px-2">Data</th>
                                 <th class="py-2 px-2">Estado</th>
-                                <th class="py-2 px-2">Parcelado</th>
-                                <th class="py-2 px-2">Faturado</th>
+                                <th v-if="!isClientUser" class="py-2 px-2">Parcelado</th>
+                                <th v-if="!isClientUser" class="py-2 px-2">Faturado</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -654,7 +741,7 @@ const removeInstallment = (installment) => {
                                     class="border-b cursor-pointer hover:bg-gray-50"
                                     @click="toggleExpanded(sale, $event)"
                                 >
-                                    <td class="py-2 px-2">
+                                    <td v-if="!isClientUser" class="py-2 px-2">
                                         <input
                                             type="checkbox"
                                             class="rounded border-gray-300 disabled:opacity-40"
@@ -665,7 +752,7 @@ const removeInstallment = (installment) => {
                                     </td>
                                     <td class="py-2 px-2 font-medium">{{ sale.type }}</td>
                                     <td class="py-2 px-2">{{ sale.client }}</td>
-                                    <td class="py-2 px-2">
+                                    <td v-if="!isClientUser" class="py-2 px-2">
                                         <div class="font-medium">{{ sale.description }}</div>
                                         <div class="text-xs text-gray-500">ID interno #{{ sale.transaction_id || sale.id }}</div>
                                         <div v-if="sale.document_number" class="text-xs text-gray-500">
@@ -689,7 +776,7 @@ const removeInstallment = (installment) => {
                                     <td class="py-2 px-2">{{ formatAmount(sale.amount) }} €</td>
                                     <td class="py-2 px-2">{{ formatDate(sale.date) }}</td>
                                     <td class="py-2 px-2">{{ invoiceStatusLabel(sale) }}</td>
-                                    <td class="py-2 px-2">
+                                    <td v-if="!isClientUser" class="py-2 px-2">
                                         <template v-if="resolveSource(sale) === 'transaction' && !isPackIntervention(sale)">
                                             <label class="inline-flex items-center gap-2 text-sm text-gray-600">
                                                 <input
@@ -707,7 +794,7 @@ const removeInstallment = (installment) => {
                                         </template>
                                         <span v-else class="text-xs text-gray-400">—</span>
                                     </td>
-                                    <td class="py-2 px-2">
+                                    <td v-if="!isClientUser" class="py-2 px-2">
                                         <span v-if="isPackIntervention(sale)" class="text-xs text-gray-500">
                                             Incluído no pack
                                         </span>
@@ -739,7 +826,7 @@ const removeInstallment = (installment) => {
                                     </td>
                                 </tr>
                                 <tr v-if="isExpanded(sale)" class="bg-gray-50">
-                                    <td colspan="9" class="px-4 py-3">
+                                    <td :colspan="isClientUser ? 6 : 9" class="px-4 py-3">
                                         <table class="w-full text-sm">
                                             <tbody>
                                                 <tr>
@@ -857,6 +944,74 @@ const removeInstallment = (installment) => {
                 </div>
 
                 <p v-else class="text-sm text-gray-500">Sem vendas registadas.</p>
+            </div>
+
+            <div class="bg-white rounded shadow p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold">Projetos</h2>
+                    <p class="text-sm text-gray-500">Totais descriminados por projeto.</p>
+                </div>
+
+                <div v-if="filteredProjects.length" class="overflow-x-auto">
+                    <table class="min-w-[900px] w-full text-left text-sm">
+                        <thead>
+                            <tr class="bg-gray-50 border-b">
+                                <th class="py-2 px-3">Projeto</th>
+                                <th class="py-2 px-3">Cliente</th>
+                                <th class="py-2 px-3">Estado</th>
+                                <th class="py-2 px-3">Base</th>
+                                <th class="py-2 px-3">Parcelas</th>
+                                <th class="py-2 px-3">Em aberto</th>
+                                <th class="py-2 px-3">Documento</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="project in filteredProjects" :key="project.id" class="border-b">
+                                <td class="py-2 px-3 font-medium">{{ project.name }}</td>
+                                <td class="py-2 px-3">{{ project.client }}</td>
+                                <td class="py-2 px-3">{{ project.status }}</td>
+                                <td class="py-2 px-3">{{ formatAmount(project.base_amount) }} €</td>
+                                <td class="py-2 px-3">{{ formatAmount(project.installments_total) }} €</td>
+                                <td class="py-2 px-3 text-amber-600">{{ formatAmount(project.remaining_amount) }} €</td>
+                                <td class="py-2 px-3">{{ project.invoice_number || '—' }}<span v-if="project.invoice_status"> · {{ project.invoice_status }}</span></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p v-else class="text-sm text-gray-500">Sem projetos para o filtro atual.</p>
+            </div>
+
+            <div class="bg-white rounded shadow p-6">
+                <div class="mb-4">
+                    <h2 class="text-lg font-semibold">Documentos</h2>
+                    <p class="text-sm text-gray-500">Lista detalhada de documentos emitidos.</p>
+                </div>
+
+                <div v-if="filteredInvoices.length" class="overflow-x-auto">
+                    <table class="min-w-[760px] w-full text-left text-sm">
+                        <thead>
+                            <tr class="bg-gray-50 border-b">
+                                <th class="py-2 px-3">Número</th>
+                                <th class="py-2 px-3">Projeto</th>
+                                <th class="py-2 px-3">Valor</th>
+                                <th class="py-2 px-3">Estado</th>
+                                <th class="py-2 px-3">Emissão</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="invoice in filteredInvoices" :key="invoice.id" class="border-b">
+                                <td class="py-2 px-3 font-medium">{{ invoice.number }}</td>
+                                <td class="py-2 px-3">{{ projects.find((project) => String(project.id) === String(invoice.project_id))?.name || '—' }}</td>
+                                <td class="py-2 px-3">{{ formatAmount(invoice.total) }} €</td>
+                                <td class="py-2 px-3">{{ invoice.status }}</td>
+                                <td class="py-2 px-3">{{ formatDate(invoice.issued_at) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p v-else class="text-sm text-gray-500">Sem documentos para o filtro atual.</p>
             </div>
         </div>
     </BaseLayout>

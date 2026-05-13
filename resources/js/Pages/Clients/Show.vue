@@ -225,6 +225,9 @@ function submitPromoteObject() {
 }
 
 function badgeStatus(status) {
+    if (status === 'orcamentado') {
+        return 'bg-amber-100 text-amber-700 border-amber-300'
+    }
     if (status === 'concluido') {
         return 'bg-green-100 text-green-700 border-green-300'
     }

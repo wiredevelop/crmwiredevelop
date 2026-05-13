@@ -21,6 +21,7 @@ class DashboardController extends Controller
     public function index()
     {
         $isClientUser = $this->isClientUser();
+        $clientPendingBreakdown = $isClientUser ? $this->clientPendingBreakdown() : null;
 
         $clientsQuery = $this->scopeClients(Client::query());
         $projectsQuery = $this->scopeByClient(Project::query()->where('is_hidden', false));
@@ -46,7 +47,9 @@ class DashboardController extends Controller
 
             'new_clients_month' => (clone $clientsQuery)->whereMonth('created_at', now()->month)->count(),
             'new_projects_month' => (clone $projectsQuery)->whereMonth('created_at', now()->month)->count(),
-            'pending_values' => $this->pendingValuesTotal(),
+            'pending_values' => $isClientUser
+                ? ($clientPendingBreakdown['totals']['todos'] ?? 0)
+                : $this->pendingValuesTotal(),
         ];
 
         $salesGoalValue = Setting::where('key', 'sales_goal_year')->value('value');
@@ -206,6 +209,18 @@ class DashboardController extends Controller
         ]);
     }
 
+    public function pending()
+    {
+        abort_unless($this->isClientUser(), 403);
+
+        $pending = $this->clientPendingBreakdown();
+
+        return Inertia::render('Dashboard/Pending', [
+            'pendingTotals' => $pending['totals'],
+            'pendingSections' => $pending['sections'],
+        ]);
+    }
+
     private function clientSales(): array
     {
         $projectSales = $this->scopeByClient(Project::with([
@@ -332,7 +347,7 @@ class DashboardController extends Controller
     private function pendingValuesTotal(): float
     {
         return $this->scopeByClient(Project::with(['quote'])->withSum('installments', 'amount')->where('is_hidden', false))
-            ->whereNotIn('status', ['concluido', 'cancelado'])
+            ->whereNotIn('status', ['orcamentado', 'concluido', 'cancelado'])
             ->get()
             ->sum(function (Project $project) {
                 $baseAmount = (float) ($project->quote?->price_development ?? 0);
@@ -341,5 +356,115 @@ class DashboardController extends Controller
 
                 return max(0, $baseAmount - $adjudicationValue - $installmentsTotal);
             });
+    }
+
+    private function clientPendingBreakdown(): array
+    {
+        $projectItems = $this->scopeByClient(
+            Project::with(['quote', 'invoice'])
+                ->withSum('installments', 'amount')
+                ->where('is_hidden', false)
+        )
+            ->whereNotIn('status', ['orcamentado', 'concluido', 'cancelado'])
+            ->where(function ($query) {
+                $query->whereDoesntHave('invoice')
+                    ->orWhereHas('invoice', function ($invoiceQuery) {
+                        $invoiceQuery->where('status', '!=', 'pendente');
+                    });
+            })
+            ->orderByDesc('updated_at')
+            ->get()
+            ->map(function (Project $project) {
+                $baseAmount = (float) ($project->quote?->price_development ?? 0);
+                $adjudicationValue = $baseAmount * ((float) ($project->quote?->adjudication_percent ?? 0) / 100);
+                $installmentsTotal = (float) ($project->installments_sum_amount ?? 0);
+                $amount = round(max(0, $baseAmount - $adjudicationValue - $installmentsTotal), 2);
+
+                if ($amount <= 0) {
+                    return null;
+                }
+
+                return [
+                    'id' => 'project-'.$project->id,
+                    'category' => 'projects',
+                    'category_label' => 'Projetos',
+                    'title' => $project->name ?? 'Projeto',
+                    'subtitle' => 'Estado: '.($project->status ?? '—'),
+                    'description' => 'Valor ainda em aberto no projeto.',
+                    'amount' => $amount,
+                    'date' => $project->updated_at?->toDateString(),
+                    'sort_at' => $project->updated_at?->timestamp ?? 0,
+                ];
+            })
+            ->filter()
+            ->values();
+
+        $documentItems = $this->scopeByClient(Invoice::with('project:id,name'))
+            ->where('status', 'pendente')
+            ->orderBy('due_at')
+            ->orderByDesc('issued_at')
+            ->get()
+            ->map(function (Invoice $invoice) {
+                return [
+                    'id' => 'invoice-'.$invoice->id,
+                    'category' => 'documents',
+                    'category_label' => 'Documentos',
+                    'title' => $invoice->number ?: 'Documento sem número',
+                    'subtitle' => $invoice->project?->name ?: 'Sem projeto associado',
+                    'description' => $invoice->due_at
+                        ? 'Vencimento: '.$invoice->due_at->format('d/m/Y')
+                        : 'Documento emitido e ainda por pagar.',
+                    'amount' => round((float) ($invoice->total ?? 0), 2),
+                    'date' => ($invoice->due_at ?? $invoice->issued_at)?->toDateString(),
+                    'sort_at' => ($invoice->due_at ?? $invoice->issued_at ?? $invoice->created_at)?->timestamp ?? 0,
+                ];
+            })
+            ->filter(fn (array $item) => $item['amount'] > 0)
+            ->values();
+
+        $interventionItems = WalletTransaction::with('intervention:id,type,ended_at')
+            ->whereHas('wallet', fn ($query) => $query->where('client_id', $this->currentClientId()))
+            ->whereNotNull('intervention_id')
+            ->whereNull('invoice_id')
+            ->whereNotNull('amount')
+            ->where('amount', '>', 0)
+            ->orderByDesc('transaction_at')
+            ->get()
+            ->map(function (WalletTransaction $transaction) {
+                return [
+                    'id' => 'intervention-'.$transaction->id,
+                    'category' => 'interventions',
+                    'category_label' => 'Intervenções',
+                    'title' => $transaction->intervention?->type ?: ($transaction->description ?: 'Intervenção'),
+                    'subtitle' => $transaction->description ?: 'Intervenção concluída e ainda sem documento.',
+                    'description' => 'Valor de intervenção ainda por faturar.',
+                    'amount' => round((float) ($transaction->amount ?? 0), 2),
+                    'date' => ($transaction->transaction_at ?? $transaction->created_at)?->toDateString(),
+                    'sort_at' => ($transaction->transaction_at ?? $transaction->created_at)?->timestamp ?? 0,
+                ];
+            })
+            ->values();
+
+        $allItems = $projectItems
+            ->concat($documentItems)
+            ->concat($interventionItems)
+            ->sortByDesc('sort_at')
+            ->values()
+            ->map(fn (array $item) => Arr::except($item, ['sort_at']));
+
+        return [
+            'totals' => [
+                'todos' => round($allItems->sum('amount'), 2),
+                'projects' => round($projectItems->sum('amount'), 2),
+                'documents' => round($documentItems->sum('amount'), 2),
+                'interventions' => round($interventionItems->sum('amount'), 2),
+            ],
+            'sections' => [
+                'todos' => $allItems->all(),
+                'projects' => $projectItems->map(fn (array $item) => Arr::except($item, ['sort_at']))->all(),
+                'documents' => $documentItems->map(fn (array $item) => Arr::except($item, ['sort_at']))->all(),
+                'interventions' => $interventionItems->map(fn (array $item) => Arr::except($item, ['sort_at']))->all(),
+            ],
+        ];
     }
 }

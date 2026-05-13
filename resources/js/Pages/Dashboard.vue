@@ -121,10 +121,7 @@ const registeredInvoicesFiltered = computed(() =>
         </div>
 
         <!-- ===================== KPIs ===================== -->
-        <div
-            class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8"
-            :class="isClientUser ? 'xl:grid-cols-3' : 'xl:grid-cols-4'"
-        >
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
 
             <div class="bg-white rounded shadow p-4">
                 <p class="text-xs text-gray-500">{{ isClientUser ? 'Objetos' : 'Clientes' }}</p>
@@ -151,15 +148,15 @@ const registeredInvoicesFiltered = computed(() =>
                 </p>
             </div>
 
-            <div v-else class="bg-white rounded shadow p-4">
+            <Link v-else :href="route('dashboard.pending')" class="block bg-white rounded shadow p-4 transition hover:shadow-md">
                 <p class="text-xs text-gray-500">Valores Pendentes</p>
                 <p class="text-xl font-semibold text-amber-600">
                     {{ formatAmount(stats.pending_values) }} €
                 </p>
                 <p class="text-xs text-amber-600">
-                    Soma dos valores ainda em aberto.
+                    Ver detalhe do pendente.
                 </p>
-            </div>
+            </Link>
 
         </div>
 
